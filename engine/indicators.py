@@ -400,6 +400,50 @@ def calculate_price_change(prices, periods):
     }
 
 
+def calculate_volume_avg(volumes, period=20):
+    """Calculate average volume over period"""
+    if len(volumes) < period:
+        return None
+    return sum(volumes[-period:]) / period
+
+
+def is_volume_confirmed(volumes, period=20, multiplier=1.2):
+    """
+    Check if current volume is above average (volume confirmation).
+    Returns: (confirmed: bool, current: float, average: float, ratio: float)
+    """
+    if len(volumes) < period + 1:
+        return False, 0, 0, 0
+    current = volumes[-1]
+    avg = calculate_volume_avg(volumes[:-1], period)
+    if avg is None or avg == 0:
+        return False, current, 0, 0
+    ratio = current / avg
+    return ratio >= multiplier, current, avg, ratio
+
+
+def calculate_momentum(prices, period=10):
+    """
+    Calculate price momentum (rate of change normalized).
+    Returns: momentum value (positive = bullish, negative = bearish)
+    """
+    if len(prices) < period + 1:
+        return 0
+    change = (prices[-1] - prices[-(period + 1)]) / prices[-(period + 1)]
+    return change * 100  # as percentage
+
+
+def is_momentum_strong(prices, period=10, min_momentum_pct=0.05):
+    """
+    Check if momentum is strong enough for entry.
+    Returns: (is_strong: bool, momentum: float, direction: 'BULL'|'BEAR'|'FLAT')
+    """
+    momentum = calculate_momentum(prices, period)
+    if abs(momentum) < min_momentum_pct:
+        return False, momentum, 'FLAT'
+    return True, momentum, 'BULL' if momentum > 0 else 'BEAR'
+
+
 def analyze_market(prices, highs, lows, timeframe="H1"):
     """Complete market analysis"""
     if len(prices) < 50:
@@ -508,6 +552,8 @@ def analyze_market(prices, highs, lows, timeframe="H1"):
         "confidence": confidence,
         "bullish_signals": bullish_signals,
         "bearish_signals": bearish_signals,
+        "closes": closes,  # Full price array for momentum calc
+        "volumes": [],  # Filled in by caller (analyze_market doesn't get volume data)
         "timestamp": datetime.now()
     }
 

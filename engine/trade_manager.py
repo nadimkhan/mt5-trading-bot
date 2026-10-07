@@ -174,31 +174,59 @@ class TradeManager:
         return False
     
     def apply_partial_tp(self, position: dict) -> bool:
-        """Close partial position at TP level"""
+        """
+        Close partial position at TP1 (default 1:1 RR).
+        Also moves stop to breakeven after partial TP is hit.
+        """
         if not self.partial_tp_enabled:
             return False
-            
+
         ticket = position['ticket']
         entry_price = position['price_open']
         current_price = position['price_current']
         pos_type = position['type']
         volume = position['volume']
         symbol = position['symbol']
-        
+        current_sl = position.get('sl', 0)
+
         # Calculate profit in pips
         pip_size = self._get_pip_size(symbol)
-        if pos_type == 0:
+        if pos_type == 0:  # BUY
             profit_pips = (current_price - entry_price) / pip_size
-        else:
+        else:  # SELL
             profit_pips = (entry_price - current_price) / pip_size
-        
-        # Check if we hit partial TP
-        if profit_pips >= self.partial_tp_at_pips:
+
+        # Get current SL distance
+        sl_distance_pips = 0
+        if current_sl and current_sl > 0:
+            if pos_type == 0:
+                sl_distance_pips = (entry_price - current_sl) / pip_size
+            else:
+                sl_distance_pips = (current_sl - entry_price) / pip_size
+
+        # TP1 is at 1:1 RR by default (at the same distance as SL)
+        tp1_pips = sl_distance_pips if sl_distance_pips > 0 else self.partial_tp_at_pips
+
+        # Check if we hit TP1
+        if profit_pips >= tp1_pips:
             partial_volume = round(volume * (self.partial_tp_pct / 100), 2)
             if partial_volume >= volume_min_for_symbol(symbol):
                 success = self.mt5.close_position(ticket, partial_volume)
                 if success:
-                    logger.info(f"Partial TP hit: closed {partial_volume} of {volume} on {ticket}")
+                    logger.info(f"Partial TP hit at {profit_pips:.1f} pips (TP1={tp1_pips:.1f}): closed {partial_volume} of {volume} on {ticket}")
+                    # Move SL to breakeven + small buffer
+                    if current_sl and current_sl > 0:
+                        buffer = pip_size * 2  # 2 pip buffer
+                        if pos_type == 0:  # BUY
+                            new_sl = entry_price + buffer
+                            if new_sl > current_sl:  # Only move SL up
+                                self.mt5.modify_sl(ticket, new_sl)
+                                logger.info(f"SL moved to breakeven+buffer: {new_sl}")
+                        else:  # SELL
+                            new_sl = entry_price - buffer
+                            if new_sl < current_sl:  # Only move SL down
+                                self.mt5.modify_sl(ticket, new_sl)
+                                logger.info(f"SL moved to breakeven+buffer: {new_sl}")
                     return True
         return False
     

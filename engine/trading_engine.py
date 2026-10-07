@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from engine.mt5_connector import MT5Connector
-from engine.indicators import analyze_market, detect_market_regime, is_tradeable_regime
+from engine.indicators import analyze_market, detect_market_regime, is_tradeable_regime, is_volume_confirmed, is_momentum_strong
 from engine.trade_manager import TradeManager
 from engine.session_filter import SessionFilter
 from engine.correlation_controller import CorrelationController
@@ -572,27 +572,30 @@ class TradingEngine:
         """Analyze a single symbol on a specific timeframe"""
         # Get OHLCV data
         bars = self.mt5.get_ohlcv(symbol, timeframe, 100)
-        
+
         if len(bars) < 50:
             logger.warning(f"Not enough data for {symbol} {timeframe}")
             return None
-            
+
         # Extract price data
         closes = [b["close"] for b in bars]
         highs = [b["high"] for b in bars]
         lows = [b["low"] for b in bars]
-        
+        volumes = [b.get("volume", 0) for b in bars]
+
         # Get current price
         price_info = self.mt5.get_current_price(symbol)
         if price_info:
             closes.append(price_info["bid"])
-            
+
         # Calculate indicators and analysis
         analysis = analyze_market(closes, highs, lows, timeframe)
-        
-        if price_info:
-            analysis["bid"] = price_info["bid"]
-            analysis["ask"] = price_info["ask"]
+        # Inject volume data
+        if analysis is not None:
+            analysis["volumes"] = volumes
+            if price_info:
+                analysis["bid"] = price_info["bid"]
+                analysis["ask"] = price_info["ask"]
             analysis["spread"] = round((price_info["ask"] - price_info["bid"]) * 10000, 1)
             
         return analysis
@@ -701,6 +704,43 @@ class TradingEngine:
                 if setup_confidence < min_conf:
                     logger.info(f"{symbol}: REJECTED - confidence {setup_confidence}% < min {min_conf}%")
                     continue
+
+                # Check momentum (is price moving strongly enough?)
+                m5_data = market_data.get('M5', {})
+                m5_closes = m5_data.get('closes', [])
+                if len(m5_closes) >= 11:
+                    mom_ok, momentum, mom_dir = is_momentum_strong(m5_closes, period=10, min_momentum_pct=0.05)
+                    if not mom_ok:
+                        logger.info(f"{symbol}: REJECTED - momentum too weak ({momentum:.3f}%)")
+                        continue
+                    # Momentum should align with signal
+                    signal = setup.get("signal")
+                    if signal == "BUY" and mom_dir != "BULL":
+                        logger.info(f"{symbol}: REJECTED - momentum bearish ({momentum:.3f}%) but signal BUY")
+                        continue
+                    if signal == "SELL" and mom_dir != "BEAR":
+                        logger.info(f"{symbol}: REJECTED - momentum bullish ({momentum:.3f}%) but signal SELL")
+                        continue
+
+                # Check volume (is current volume above average?)
+                m5_volumes = m5_data.get('volumes', [])
+                if len(m5_volumes) >= 21:
+                    vol_ok, curr_vol, avg_vol, vol_ratio = is_volume_confirmed(m5_volumes, period=20, multiplier=1.0)
+                    if not vol_ok:
+                        logger.info(f"{symbol}: REJECTED - volume below average (ratio {vol_ratio:.2f})")
+                        continue
+
+                # Check news filter (no high-impact news in next 30 min)
+                if self.news_checker:
+                    try:
+                        news_events = self.news_checker.check_upcoming_news(symbol, hours_ahead=0.5)
+                        if news_events:
+                            news_name = news_events[0].get('name', 'Unknown')
+                            hours_away = news_events[0].get('hours_away', 0)
+                            logger.info(f"{symbol}: REJECTED - news window: {news_name} in {hours_away}h")
+                            continue
+                    except Exception as e:
+                        logger.error(f"News check error: {e}")
 
                 # Check risk-reward ratio
                 entry = setup.get("entry_zone")

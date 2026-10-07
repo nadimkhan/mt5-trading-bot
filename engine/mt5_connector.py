@@ -365,7 +365,33 @@ class MT5Connector:
         except Exception as e:
             logger.error(f"Failed to send order: {e}")
             return None
-            
+
+    def modify_sl(self, ticket, new_sl, new_tp=None):
+        """Modify stop loss (and optionally take profit) of an open position"""
+        try:
+            position = mt5.positions_get(ticket=ticket)
+            if not position or len(position) == 0:
+                logger.error(f"Position {ticket} not found for SL modification")
+                return False
+            pos = position[0]
+            request = {
+                "action": mt5.TRADE_ACTION_SLTP,
+                "position": ticket,
+                "symbol": pos.symbol,
+                "sl": new_sl,
+                "tp": new_tp if new_tp else pos.tp,
+            }
+            result = mt5.order_send(request)
+            if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                logger.info(f"SL modified for {ticket}: new SL={new_sl}")
+                return True
+            else:
+                logger.error(f"Failed to modify SL: {result.retcode if result else 'no result'}")
+                return False
+        except Exception as e:
+            logger.error(f"Error modifying SL: {e}")
+            return False
+
     def close_position(self, ticket, volume=None):
         """Close a position"""
         try:

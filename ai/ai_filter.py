@@ -5,6 +5,7 @@ AI doesn't make decisions - it filters them based on news and regime
 import logging
 import json
 from typing import Dict, List
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -230,7 +231,7 @@ JSON response:"""
 
 class NewsChecker:
     """Check for upcoming high-impact news events"""
-    
+
     def __init__(self):
         # High impact news - in production would use economic calendar API
         self.high_impact_events = {
@@ -239,18 +240,61 @@ class NewsChecker:
             "GBP": ["BOE", "CPI_UK", "GDP_UK"],
             "JPY": ["BOJ", "CPI_JP"],
         }
-    
+        # Known recurring high-impact events by day of week and approximate UTC hour
+        # Format: (weekday_0_mon, hour_utc, name, currencies)
+        self.recurring_events = [
+            (4, 13, "NFP First Friday", ["USD"]),  # First Friday of month at 13:30 UTC
+            (1, 19, "FOMC Statement", ["USD"]),   # Wednesday 19:00 UTC
+            (2, 12, "CPI Release", ["USD"]),        # Tuesday 12:30 UTC
+        ]
+
     def check_upcoming_news(self, symbol: str, hours_ahead: int = 2) -> List[Dict]:
         """
         Check for upcoming high-impact news.
         In production, would query an economic calendar API.
         Returns list of news events.
         """
-        # Placeholder - returns empty for now
-        # In production: integrate with forexfactory, investing.com, or similar API
-        return []
-    
+        events = []
+        now = datetime.utcnow()
+        symbol_currencies = self._get_currencies_from_symbol(symbol)
+
+        # Check recurring events
+        for weekday, hour, name, currencies in self.recurring_events:
+            # Check if any currency matches
+            if not any(c in symbol_currencies for c in currencies):
+                continue
+            # Calculate next occurrence
+            days_ahead = (weekday - now.weekday()) % 7
+            event_time = now.replace(hour=hour, minute=0, second=0, microsecond=0) + timedelta(days=days_ahead)
+            # If event was today but already passed, check next week
+            if event_time < now:
+                event_time += timedelta(days=7)
+            # Check if within window
+            time_diff = (event_time - now).total_seconds() / 3600
+            if 0 <= time_diff <= hours_ahead:
+                events.append({
+                    "time": event_time.isoformat(),
+                    "name": name,
+                    "impact": "HIGH",
+                    "currencies": currencies,
+                    "hours_away": round(time_diff, 1)
+                })
+        return events
+
     def is_news_window(self, symbol: str, minutes: int = 30) -> bool:
         """Check if currently in a news window to avoid"""
         events = self.check_upcoming_news(symbol, hours_ahead=1)
-        return len(events) > 0
+        for e in events:
+            if e.get("hours_away", 99) * 60 <= minutes:
+                return True
+        return False
+
+    def _get_currencies_from_symbol(self, symbol: str) -> List[str]:
+        """Extract currency codes from a forex symbol"""
+        symbol = symbol.upper()
+        currencies = []
+        common_currencies = ["USD", "EUR", "GBP", "JPY", "AUD", "NZD", "CAD", "CHF"]
+        for c in common_currencies:
+            if c in symbol:
+                currencies.append(c)
+        return currencies
