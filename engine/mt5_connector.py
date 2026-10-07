@@ -61,6 +61,17 @@ class MT5Connector:
         except:
             self.connected = False
             return False
+    
+    def reconnect(self):
+        """Attempt to reconnect to MT5"""
+        try:
+            # Shutdown and reinitialize
+            self.disconnect()
+            time.sleep(1)
+            return self.connect()
+        except Exception as e:
+            logger.error(f"Reconnect failed: {e}")
+            return False
             
     def get_account_info(self):
         """Get account information"""

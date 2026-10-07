@@ -14,6 +14,18 @@ mt5:
   password: ""  # Leave empty if no password needed for demo
   server: "GTCGlobalTrade-Demo"
   path: "D:/Program Files/GTC Global Trade MetaTrader 5/terminal64.exe"
+  magic_number: 123456  # Only manage trades with this magic number
+
+# Reconnection Settings
+reconnect:
+  max_attempts: 5           # Max reconnect attempts before giving up
+  initial_delay_seconds: 2  # Start with 2 second delay
+  max_delay_seconds: 60     # Max delay between attempts
+
+# Drawdown Kill Switch
+drawdown:
+  max_percent: 5.0          # Max drawdown from equity peak
+  daily_limit_percent: 3.0   # Daily loss limit
 
 # Trading Settings
 trading:

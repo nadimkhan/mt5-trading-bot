@@ -13,6 +13,7 @@ from engine.indicators import analyze_market, detect_market_regime, is_tradeable
 from engine.trade_manager import TradeManager
 from engine.session_filter import SessionFilter
 from engine.correlation_controller import CorrelationController
+from engine.safeguards import Safeguards
 from ai.ai_analyzer import AIAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -152,6 +153,9 @@ class TradingEngine:
         
         # Initialize correlation controller
         self.correlation_controller = CorrelationController(config)
+        
+        # Initialize safeguards
+        self.safeguards = Safeguards(None, config)  # Will be set after MT5 init
 
     def initialize(self):
         """Initialize MT5 and AI connections"""
@@ -182,6 +186,15 @@ class TradingEngine:
 
             # Initialize trade manager with MT5 connection
             self.trade_manager.mt5 = self.mt5
+
+            # Initialize safeguards with MT5 and account info
+            account_info = self.mt5.get_account_info()
+            self.safeguards.mt5 = self.mt5
+            self.safeguards.initialize(account_info)
+            
+            # Filter positions to only our magic number
+            self.positions = self.safeguards.filter_our_positions(self.positions)
+            logger.info(f"Safeguards initialized - tracking {len(self.positions)} positions by magic {self.safeguards.magic}")
 
             # Initialize AI
             ai_config = self.config.get("ai", {})
@@ -219,6 +232,29 @@ class TradingEngine:
         while self.running:
             try:
                 now = time.time()
+                
+                # Connection health check
+                if not self.safeguards.check_connection():
+                    logger.warning("Connection lost - attempting reconnect...")
+                    reconnect_result = self.safeguards.handle_disconnect()
+                    if not reconnect_result.get("reconnected"):
+                        logger.error("Reconnection failed - pausing")
+                        self.status = "RECONNECTING"
+                        time.sleep(5)
+                        continue
+                    else:
+                        # Re-sync positions after reconnect
+                        self.positions = reconnect_result.get("positions", [])
+                        self.status = "RUNNING"
+                
+                # Check drawdown kill switch
+                account = self.mt5.get_account_info()
+                should_kill, kill_reason = self.safeguards.should_kill_switch(account)
+                if should_kill:
+                    logger.warning(f"KILL SWITCH: {kill_reason}")
+                    self.trade_manager.close_all_positions(kill_reason)
+                    self.status = "KILL_SWITCH"
+                    # Don't stop - wait for manual intervention
                 
                 # TRADE MANAGEMENT LOOP (every 5 seconds) - Check positions
                 if now - last_trade_management >= 5:
