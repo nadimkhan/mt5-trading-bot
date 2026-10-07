@@ -136,6 +136,8 @@
         .decision-action.buy { background: rgba(16, 185, 129, 0.15); color: var(--accent-green); }
         .decision-action.sell { background: rgba(239, 68, 68, 0.15); color: var(--accent-red); }
         .decision-action.hold { background: rgba(148, 163, 184, 0.15); color: var(--text-muted); }
+        .decision-action.veto { background: rgba(239, 68, 68, 0.2); color: var(--accent-red); border: 1px solid rgba(239, 68, 68, 0.4); }
+        .decision-action.reject { background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); }
         .decision-reason { font-size: 12px; color: var(--text-secondary); line-height: 1.4; }
         .decision-meta { display: flex; gap: 12px; margin-top: 6px; font-size: 11px; color: var(--text-muted); }
         .confidence-bar { width: 60px; height: 4px; background: var(--bg-secondary); border-radius: 2px; overflow: hidden; }
@@ -177,8 +179,8 @@
         .config-param input[type="range"] { flex: 1; }
         .config-buttons { display: flex; gap: 8px; padding: 16px 24px; border-top: 1px solid var(--border-color); justify-content: space-between; }
 
-        .sidebar-btn { width: 100%; margin-top: 8px; padding: 8px 12px; background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-secondary); border-radius: 6px; font-family: inherit; font-size: 12px; cursor: pointer; transition: all 0.2s; }
-        .sidebar-btn:hover { border-color: var(--accent-purple); color: var(--accent-purple); }
+        .sidebar-btn { width: 100%; margin: 8px 12px 16px; padding: 10px 12px; background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 6px; font-family: inherit; font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.2s; display: block; }
+        .sidebar-btn:hover { border-color: var(--accent-purple); color: var(--accent-purple); background: rgba(139, 92, 246, 0.1); }
     </style>
 </head>
 <body>
@@ -206,7 +208,7 @@
                     <button class="strategy-btn active" id="btn-scalp" data-strategy="scalp"><span class="strategy-name">Scalp</span><span class="strategy-desc">H4+M15+M1</span></button>
                     <button class="strategy-btn" id="btn-trend" data-strategy="trend"><span class="strategy-name">Trend</span><span class="strategy-desc">EMA Cross</span></button>
                 </div>
-                <button class="sidebar-btn" id="btn-config">⚙ Configure Strategies</button>
+                <button class="sidebar-btn" id="btn-config">Configure Strategies</button>
             </nav>
         </aside>
 
@@ -247,7 +249,7 @@
 
     <div id="configModal" class="modal">
         <div class="modal-content config-modal-content">
-            <h3>⚙ Strategy Configuration</h3>
+            <h3>Strategy Configuration</h3>
             <div class="config-tabs" id="config-tabs"></div>
             <div class="config-body" id="config-body"></div>
             <div class="config-buttons">
@@ -342,7 +344,20 @@
             const container = document.getElementById('ai-decisions');
             if (!decisions || decisions.length === 0) { container.innerHTML = '<div class="empty-state"><p>No decisions yet</p></div>'; return; }
             let html = '';
-            decisions.slice(0, 5).forEach(d => { const action = d.action || 'HOLD'; const conf = d.confidence || 50; const confClass = conf >= 70 ? 'high' : conf >= 50 ? 'medium' : 'low'; const time = new Date(d.created_at || Date.now()).toLocaleTimeString(); let reason = d.entry_reason || d.reasoning || 'No reasoning'; if (reason.length > 100) reason = reason.substring(0, 100) + '...'; html += '<div class="decision-item"><div class="decision-header"><span class="decision-symbol">' + (d.symbol || 'N/A') + '</span><span class="decision-action ' + action.toLowerCase() + '">' + action + '</span></div><div class="decision-reason">' + reason + '</div><div class="decision-meta"><span>' + time + '</span><span>Conf: ' + conf + '%</span><div class="confidence-bar"><div class="confidence-fill ' + confClass + '" style="width:' + conf + '%"></div></div></div></div>'; });
+            decisions.slice(0, 8).forEach(d => {
+                const action = d.action || 'HOLD';
+                const conf = d.confidence || 50;
+                const confClass = conf >= 70 ? 'high' : conf >= 50 ? 'medium' : 'low';
+                const time = new Date(d.created_at || Date.now()).toLocaleTimeString();
+                // Detect special decision types
+                let displayAction = action;
+                let actionClass = action.toLowerCase();
+                if (d.vetoed) { displayAction = 'VETO'; actionClass = 'veto'; }
+                else if (action === 'HOLD' && d.reasoning && d.reasoning.includes('REJECTED')) { displayAction = 'REJECT'; actionClass = 'reject'; }
+                let reason = d.veto_reason || d.entry_reason || d.reasoning || 'No reasoning';
+                if (reason.length > 120) reason = reason.substring(0, 120) + '...';
+                html += '<div class="decision-item"><div class="decision-header"><span class="decision-symbol">' + (d.symbol || 'N/A') + '</span><span class="decision-action ' + actionClass + '">' + displayAction + '</span></div><div class="decision-reason">' + reason + '</div><div class="decision-meta"><span>' + time + '</span><span>Conf: ' + conf + '%</span><div class="confidence-bar"><div class="confidence-fill ' + confClass + '" style="width:' + conf + '%"></div></div></div></div>';
+            });
             container.innerHTML = html;
         }
 

@@ -683,11 +683,36 @@ class TradingEngine:
                 
                 # Get strategy signal
                 setup = self.strategy_manager.get_signal(market_data)
-                
+
                 # If no clear signal, skip
                 if setup.get("signal") in ["HOLD", "NONE", None]:
                     continue
-                
+
+                # Check confidence threshold from strategy config
+                strategy_obj = self.strategy_manager.strategies.get(self.strategy_manager.active_strategy)
+                min_conf = 60  # default
+                if strategy_obj and hasattr(strategy_obj, 'min_confidence'):
+                    min_conf = strategy_obj.min_confidence
+
+                setup_confidence = setup.get("confidence", 0)
+                if setup_confidence < min_conf:
+                    logger.info(f"{symbol}: REJECTED - confidence {setup_confidence}% < min {min_conf}%")
+                    continue
+
+                # Check risk-reward ratio
+                entry = setup.get("entry_zone")
+                sl = setup.get("stop_loss")
+                tp = setup.get("take_profit")
+                if entry and sl and tp:
+                    risk = abs(entry - sl)
+                    reward = abs(tp - entry)
+                    if risk > 0:
+                        rr = reward / risk
+                        min_rr = getattr(strategy_obj, 'min_risk_reward', 1.5) if strategy_obj else 1.5
+                        if rr < min_rr:
+                            logger.info(f"{symbol}: REJECTED - RR {rr:.2f} < min {min_rr}")
+                            continue
+
                 # Apply AI filter (veto/approve)
                 if self.ai_filter:
                     news_events = self.news_checker.check_upcoming_news(symbol)
@@ -698,12 +723,31 @@ class TradingEngine:
                         news_events=news_events,
                         regime=regime
                     )
-                    
-                    # If AI vetoes, skip this setup
+
+                    # If AI vetoes, skip this setup but log the reason
                     if not ai_result.get("approved", True):
-                        logger.info(f"{symbol}: AI VETOED - {ai_result.get('reason')}")
+                        veto_reason = ai_result.get("reason", "No reason given")
+                        logger.info(f"{symbol}: AI VETOED - {veto_reason}")
+                        # Store veto as a decision so dashboard can show it
+                        decisions[symbol] = {
+                            "action": "HOLD",
+                            "symbol": symbol,
+                            "lot_size": 0,
+                            "stop_loss_pips": 0,
+                            "take_profit_pips": 0,
+                            "reasoning": f"AI VETO: {veto_reason}",
+                            "signal": "VETO",
+                            "strategy": "rule_based",
+                            "confidence": setup_confidence,
+                            "entry_price": None,
+                            "stop_loss": None,
+                            "take_profit": None,
+                            "market_regime": regime.get("regime") if regime else "UNKNOWN",
+                            "vetoed": True,
+                            "veto_reason": veto_reason
+                        }
                         continue
-                    
+
                     # Apply AI adjustments if any
                     adjustments = ai_result.get("adjustments", {})
                     if adjustments:
@@ -711,10 +755,10 @@ class TradingEngine:
                             setup["stop_loss"] = adjustments["sl"]
                         if adjustments.get("tp"):
                             setup["take_profit"] = adjustments["tp"]
-                
+
                 # Build decision dict
                 action = "BUY" if setup.get("signal") == "BUY" else "SELL"
-                
+
                 decisions[symbol] = {
                     "action": action,
                     "symbol": symbol,
@@ -724,16 +768,17 @@ class TradingEngine:
                     "reasoning": setup.get("reason", "Strategy signal"),
                     "signal": action,
                     "strategy": "rule_based",
-                    "confidence": setup.get("confidence", 50),
+                    "confidence": setup_confidence,
                     "entry_price": setup.get("entry_zone"),
                     "stop_loss": setup.get("stop_loss"),
                     "take_profit": setup.get("take_profit"),
-                    "market_regime": regime.get("regime") if regime else "UNKNOWN"
+                    "market_regime": regime.get("regime") if regime else "UNKNOWN",
+                    "vetoed": False
                 }
-                
+
         except Exception as e:
             logger.error(f"Strategy decisions failed: {e}")
-        
+
         return decisions
 
     def _execute_decision(self, decision):

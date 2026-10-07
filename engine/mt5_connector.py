@@ -93,14 +93,15 @@ class MT5Connector:
     def get_spread(self, symbol):
         """Get current spread for a symbol in pips"""
         try:
-            info = mt5.symbol_info_tick(symbol)
-            if info is None:
-                return 0
-            # Spread is usually in points, convert to pips
             symbol_info = mt5.symbol_info(symbol)
-            if symbol_info and symbol_info.digits == 5:
-                return info.spread / 10  # 5-digit broker
-            return info.spread
+            if symbol_info is None:
+                return 0
+            # Spread from symbol_info is in points
+            spread_points = symbol_info.spread
+            # Convert points to pips based on digits
+            if symbol_info.digits == 5 or symbol_info.digits == 3:
+                return spread_points / 10  # 5/3-digit broker
+            return spread_points
         except Exception as e:
             logger.error(f"Failed to get spread for {symbol}: {e}")
             return 0
