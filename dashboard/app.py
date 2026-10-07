@@ -397,6 +397,38 @@ def api_stop():
     return jsonify({"error": "Engine not initialized"})
 
 
+@app.route('/api/strategies', methods=['GET'])
+def api_get_strategies():
+    """Get available strategies and current selection"""
+    available = ['scalp', 'trend']
+    current = 'scalp'
+    
+    if engine and hasattr(engine, 'strategy_manager'):
+        current = getattr(engine.strategy_manager, 'active_strategy', 'scalp')
+    
+    return jsonify({
+        "available": available,
+        "current": current
+    })
+
+
+@app.route('/api/strategies/set', methods=['POST'])
+def api_set_strategy():
+    """Set active strategy"""
+    data = request.get_json()
+    strategy = data.get('strategy', 'scalp')
+    
+    if strategy not in ['scalp', 'trend']:
+        return jsonify({"error": "Invalid strategy"}), 400
+    
+    if engine and hasattr(engine, 'strategy_manager'):
+        engine.strategy_manager.active_strategy = strategy
+        logger.info(f"Strategy changed to: {strategy}")
+        return jsonify({"status": "ok", "strategy": strategy})
+    
+    return jsonify({"error": "Engine not initialized"})
+
+
 @socketio.on('connect')
 def handle_connect():
     """Client connected"""
@@ -583,6 +615,8 @@ DASHBOARD_HTML = """
         .btn-start { background: #00ff88; color: #000; }
         .btn-stop { background: #ff4444; color: #fff; }
         .btn-primary { background: #00d4ff; color: #000; }
+        .btn-scalp { background: #ff9800; color: #000; }
+        .btn-trend { background: #9c27b0; color: #fff; }
 
         .stats {
             display: flex;
@@ -747,6 +781,15 @@ DASHBOARD_HTML = """
             <p style="margin-top: 10px;">
                 <button class="btn btn-start" onclick="startEngine()">Start</button>
                 <button class="btn btn-stop" onclick="stopEngine()">Stop</button>
+            </p>
+        </div>
+
+        <div class="card">
+            <h2>Strategy</h2>
+            <p>Current: <span id="current-strategy" class="status">Loading...</span></p>
+            <p style="margin-top: 10px;">
+                <button class="btn btn-scalp" onclick="setStrategy('scalp')">Scalp (H4+M15+M1)</button>
+                <button class="btn btn-trend" onclick="setStrategy('trend')">Trend (EMA Cross)</button>
             </p>
         </div>
     </div>
@@ -1084,9 +1127,30 @@ DASHBOARD_HTML = """
             fetch('/api/stop', { method: 'POST' }).then(r => r.json()).then(d => alert(d.status || d.error));
         }
 
+        function setStrategy(strategy) {
+            fetch('/api/strategies/set', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ strategy: strategy })
+            }).then(r => r.json()).then(d => {
+                if (d.error) alert(d.error);
+                else {
+                    alert('Strategy set to: ' + strategy);
+                    loadStrategyStatus();
+                }
+            });
+        }
+
+        function loadStrategyStatus() {
+            fetch('/api/strategies').then(r => r.json()).then(d => {
+                document.getElementById('current-strategy').textContent = d.current;
+            });
+        }
+
         // Wait for socket connection then load data
         setTimeout(() => {
             loadSymbols();
+            loadStrategyStatus();
             fetch('/api/status')
                 .then(r => r.json())
                 .then(data => {
