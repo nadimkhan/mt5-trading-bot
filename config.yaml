@@ -31,10 +31,26 @@ timeframes:
 
 # Risk Management
 risk:
-  max_daily_loss_percent: 5.0
+  max_risk_per_trade: 1.0       # 1% per trade (tightened from 2%)
+  daily_loss_limit: 3.0          # 3% daily loss limit
   max_drawdown_percent: 10.0
-  max_risk_per_trade_percent: 2.0
-  min_risk_reward_ratio: 1.5
+  spread_cap_pips: 20             # Max spread to enter
+
+# Trade Management
+breakeven:
+  enabled: true
+  trigger_pips: 20               # Move to BE when profit reaches 20 pips
+
+partial_tp:
+  enabled: true
+  percentage: 50                # Close 50% at TP1
+  at_pips: 30                    # Partial TP level
+
+trailing:
+  enabled: true
+  atr_multiplier: 3.0            # ATR x 3 for trailing distance
+  period: 14                     # ATR period
+  threshold_pips: 15             # Only trail after 15 pips profit
 
 # Engine Settings for Scalping
 engine:

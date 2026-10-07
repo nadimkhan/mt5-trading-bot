@@ -10,6 +10,7 @@ from pathlib import Path
 
 from engine.mt5_connector import MT5Connector
 from engine.indicators import analyze_market
+from engine.trade_manager import TradeManager
 from ai.ai_analyzer import AIAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -140,6 +141,9 @@ class TradingEngine:
             "total_trades": 0,
             "total_pnl": 0
         }
+        
+        # Initialize trade manager
+        self.trade_manager = TradeManager(None, config)  # Will be set after MT5 init
 
     def initialize(self):
         """Initialize MT5 and AI connections"""
@@ -167,6 +171,9 @@ class TradingEngine:
             # Get current positions from MT5
             self.positions = self.mt5.get_positions()
             logger.info(f"Loaded {len(self.positions)} open positions from MT5")
+
+            # Initialize trade manager with MT5 connection
+            self.trade_manager.mt5 = self.mt5
 
             # Initialize AI
             ai_config = self.config.get("ai", {})
@@ -199,17 +206,23 @@ class TradingEngine:
         
         last_scalp_check = time.time()
         last_trend_update = time.time()
+        last_trade_management = time.time()
         
         while self.running:
             try:
                 now = time.time()
                 
-                # SCALP LOOP (every 5 seconds) - Entry signals
+                # TRADE MANAGEMENT LOOP (every 5 seconds) - Check positions
+                if now - last_trade_management >= 5:
+                    self._trade_management_loop()
+                    last_trade_management = now
+                
+                # SCALP LOOP (every 15 seconds) - Entry signals
                 if now - last_scalp_check >= self.scalp_interval:
                     self._scalp_loop()
                     last_scalp_check = now
                 
-                # TREND LOOP (every 60 seconds) - H4 trend update
+                # TREND LOOP (every 60 seconds) - M15 trend update
                 if now - last_trend_update >= self.trend_interval:
                     self._trend_loop()
                     last_trend_update = now
@@ -226,6 +239,33 @@ class TradingEngine:
         self.running = False
         if self.mt5:
             self.disconnect()
+
+    def _trade_management_loop(self):
+        """Manage open positions - breakeven, trailing stops, partial TP"""
+        if not self.trade_manager or not self.trade_manager.mt5:
+            return
+        
+        try:
+            # Check daily loss limit
+            if self.trade_manager.check_daily_loss_limit():
+                logger.warning("Daily loss limit breached - activating kill switch")
+                result = self.trade_manager.close_all_positions("Daily loss limit")
+                self.status = "KILL_SWITCH"
+                logger.info(f"Kill switch activated: {result}")
+                return
+            
+            # Manage all positions
+            results = self.trade_manager.manage_all_positions()
+            
+            if results['managed'] > 0:
+                logger.info(f"Trade management: {results['managed']} positions managed")
+                for action in results['actions']:
+                    logger.info(f"  {action['symbol']} ticket {action['ticket']}: "
+                               f"BE={action.get('breakeven')}, "
+                               f"PTP={action.get('partial_tp')}, "
+                               f"Trail={action.get('trailing')}")
+        except Exception as e:
+            logger.error(f"Trade management error: {e}")
 
     def _scalp_loop(self):
         """Fast loop - Check M5 for entry signals"""
