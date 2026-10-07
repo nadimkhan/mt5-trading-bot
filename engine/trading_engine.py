@@ -14,6 +14,8 @@ from engine.trade_manager import TradeManager
 from engine.session_filter import SessionFilter
 from engine.correlation_controller import CorrelationController
 from engine.safeguards import Safeguards
+from strategies.rule_based import ScalpStrategy, TrendFollowingStrategy, StrategyManager
+from ai.ai_filter import AIFilter, NewsChecker
 from ai.ai_analyzer import AIAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -156,6 +158,11 @@ class TradingEngine:
         
         # Initialize safeguards
         self.safeguards = Safeguards(None, config)  # Will be set after MT5 init
+        
+        # Initialize strategies
+        self.strategy_manager = StrategyManager(config)
+        self.ai_filter = None
+        self.news_checker = NewsChecker()
 
     def initialize(self):
         """Initialize MT5 and AI connections"""
@@ -196,15 +203,19 @@ class TradingEngine:
             self.positions = self.safeguards.filter_our_positions(self.positions)
             logger.info(f"Safeguards initialized - tracking {len(self.positions)} positions by magic {self.safeguards.magic}")
 
-            # Initialize AI
+            # Initialize AI Filter (not AI decision-maker)
             ai_config = self.config.get("ai", {})
-            self.ai = AIAnalyzer(
-                provider=ai_config.get("provider", "claude"),
-                api_key=ai_config.get("api_key"),
-                model=ai_config.get("model"),
-                max_tokens=ai_config.get("max_tokens", 1000),
-                temperature=ai_config.get("temperature", 0.7)
-            )
+            if ai_config.get("api_key"):
+                self.ai_filter = AIFilter(
+                    provider=ai_config.get("provider", "groq"),
+                    api_key=ai_config.get("api_key"),
+                    model=ai_config.get("model"),
+                    max_tokens=500,
+                    temperature=0.3
+                )
+                logger.info("AI Filter initialized - AI will veto/approve setups")
+            else:
+                logger.info("AI Filter disabled - using rule-based signals only")
             
             self.status = "READY"
             logger.info(f"Trading Engine initialized - Symbols: {self.symbols}, Timeframes: {self.timeframes}")
@@ -382,22 +393,13 @@ class TradingEngine:
             except Exception as e:
                 logger.error(f"Failed to analyze {symbol}: {e}")
                 
-        # Send to AI for decision
-        if self.config.get("ai", {}).get("api_key"):
-            decision = self._get_ai_decision()
-
-            # Handle multiple decisions from AI (one per symbol)
-            if decision and "_all_decisions" in decision:
-                all_decisions = decision.pop("_all_decisions")
-                # Execute ALL decisions
-                for dec in all_decisions:
-                    self._execute_decision(dec)
-                decision["_all_decisions"] = all_decisions
-            else:
-                # Execute single decision
+        # Get strategy signals
+        strategy_decisions = self._get_strategy_decisions()
+        
+        # Execute strategy signals
+        for symbol, decision in strategy_decisions.items():
+            if decision.get("signal") not in ["HOLD", "SKIP", None]:
                 self._execute_decision(decision)
-        else:
-            decision = {"error": "AI not configured", "decision": "SKIP"}
         
         # Update status
         self.status = "RUNNING"
@@ -518,6 +520,92 @@ class TradingEngine:
         except Exception as e:
             logger.error(f"AI decision failed: {e}")
             return {"error": str(e), "decision": "SKIP"}
+
+    def _get_strategy_decisions(self):
+        """
+        Get trading decisions from rule-based strategies.
+        AI only acts as a filter to veto setups.
+        """
+        decisions = {}
+        
+        try:
+            for symbol in self.symbols:
+                # Check if we already have position for this symbol
+                if any(p["symbol"] == symbol for p in self.positions):
+                    continue
+                
+                # Get multi-timeframe market data
+                market_data = self.market_data.get(symbol, {})
+                if not market_data:
+                    continue
+                
+                # Check regime filter first
+                regime = detect_market_regime(market_data, self.config)
+                if not is_tradeable_regime(regime, "trend"):
+                    continue
+                
+                # Check session filter
+                if not self.session_filter.is_tradeable_time(symbol):
+                    continue
+                
+                # Check news filter
+                if self.news_checker.is_news_window(symbol):
+                    continue
+                
+                # Get strategy signal
+                setup = self.strategy_manager.get_signal(market_data)
+                
+                # If no clear signal, skip
+                if setup.get("signal") in ["HOLD", "NONE", None]:
+                    continue
+                
+                # Apply AI filter (veto/approve)
+                if self.ai_filter:
+                    news_events = self.news_checker.check_upcoming_news(symbol)
+                    ai_result = self.ai_filter.evaluate_setup(
+                        symbol=symbol,
+                        setup=setup,
+                        market_data=market_data,
+                        news_events=news_events,
+                        regime=regime
+                    )
+                    
+                    # If AI vetoes, skip this setup
+                    if not ai_result.get("approved", True):
+                        logger.info(f"{symbol}: AI VETOED - {ai_result.get('reason')}")
+                        continue
+                    
+                    # Apply AI adjustments if any
+                    adjustments = ai_result.get("adjustments", {})
+                    if adjustments:
+                        if adjustments.get("sl"):
+                            setup["stop_loss"] = adjustments["sl"]
+                        if adjustments.get("tp"):
+                            setup["take_profit"] = adjustments["tp"]
+                
+                # Build decision dict
+                action = "BUY" if setup.get("signal") == "BUY" else "SELL"
+                
+                decisions[symbol] = {
+                    "action": action,
+                    "symbol": symbol,
+                    "lot_size": setup.get("lot_size", self.config.get("trading", {}).get("default_lot_size", 0.01)),
+                    "stop_loss_pips": setup.get("sl_pips", self.config.get("trading", {}).get("default_stop_loss_pips", 30)),
+                    "take_profit_pips": setup.get("tp_pips", self.config.get("trading", {}).get("default_take_profit_pips", 50)),
+                    "reasoning": setup.get("reason", "Strategy signal"),
+                    "signal": action,
+                    "strategy": "rule_based",
+                    "confidence": setup.get("confidence", 50),
+                    "entry_price": setup.get("entry_zone"),
+                    "stop_loss": setup.get("stop_loss"),
+                    "take_profit": setup.get("take_profit"),
+                    "market_regime": regime.get("regime") if regime else "UNKNOWN"
+                }
+                
+        except Exception as e:
+            logger.error(f"Strategy decisions failed: {e}")
+        
+        return decisions
 
     def _execute_decision(self, decision):
         """Execute trading decision"""
