@@ -46,7 +46,12 @@ class ScalpStrategy:
         self.rsi_oversold = int(self._get_param("rsi_oversold", 30))
         self.max_spread_pips = float(self._get_param("max_spread_pips", 3.0))
         self.max_open_trades = int(self._get_param("max_open_trades", 2))
+        self.max_trades_per_day = int(self._get_param("max_trades_per_day", 10))
         self.daily_loss_limit_pct = float(self._get_param("daily_loss_limit_pct", 3.0))
+        self.loss_streak_reduction_pct = int(self._get_param("loss_streak_reduction_pct", 50))
+        self.loss_streak_threshold = int(self._get_param("loss_streak_threshold", 2))
+        self.win_streak_increase_pct = int(self._get_param("win_streak_increase_pct", 0))
+        self.win_streak_threshold = int(self._get_param("win_streak_threshold", 3))
 
     def _get_param(self, name, default):
         """Get parameter from strategy config or fallback to default"""
@@ -71,7 +76,12 @@ class ScalpStrategy:
         self.rsi_oversold = int(self._get_param("rsi_oversold", 30))
         self.max_spread_pips = float(self._get_param("max_spread_pips", 3.0))
         self.max_open_trades = int(self._get_param("max_open_trades", 2))
+        self.max_trades_per_day = int(self._get_param("max_trades_per_day", 10))
         self.daily_loss_limit_pct = float(self._get_param("daily_loss_limit_pct", 3.0))
+        self.loss_streak_reduction_pct = int(self._get_param("loss_streak_reduction_pct", 50))
+        self.loss_streak_threshold = int(self._get_param("loss_streak_threshold", 2))
+        self.win_streak_increase_pct = int(self._get_param("win_streak_increase_pct", 0))
+        self.win_streak_threshold = int(self._get_param("win_streak_threshold", 3))
         
     def check_setup(self, market_data: Dict) -> Dict:
         """
@@ -253,7 +263,12 @@ class TrendFollowingStrategy:
         self.rsi_oversold = int(self._get_param("rsi_oversold", 25))
         self.max_spread_pips = float(self._get_param("max_spread_pips", 5.0))
         self.max_open_trades = int(self._get_param("max_open_trades", 3))
+        self.max_trades_per_day = int(self._get_param("max_trades_per_day", 15))
         self.daily_loss_limit_pct = float(self._get_param("daily_loss_limit_pct", 3.0))
+        self.loss_streak_reduction_pct = int(self._get_param("loss_streak_reduction_pct", 40))
+        self.loss_streak_threshold = int(self._get_param("loss_streak_threshold", 2))
+        self.win_streak_increase_pct = int(self._get_param("win_streak_increase_pct", 20))
+        self.win_streak_threshold = int(self._get_param("win_streak_threshold", 3))
 
     def _get_param(self, name, default):
         if name in self.strategy_config:
@@ -273,7 +288,12 @@ class TrendFollowingStrategy:
         self.rsi_oversold = int(self._get_param("rsi_oversold", 25))
         self.max_spread_pips = float(self._get_param("max_spread_pips", 5.0))
         self.max_open_trades = int(self._get_param("max_open_trades", 3))
+        self.max_trades_per_day = int(self._get_param("max_trades_per_day", 15))
         self.daily_loss_limit_pct = float(self._get_param("daily_loss_limit_pct", 3.0))
+        self.loss_streak_reduction_pct = int(self._get_param("loss_streak_reduction_pct", 40))
+        self.loss_streak_threshold = int(self._get_param("loss_streak_threshold", 2))
+        self.win_streak_increase_pct = int(self._get_param("win_streak_increase_pct", 20))
+        self.win_streak_threshold = int(self._get_param("win_streak_threshold", 3))
 
     def check_setup(self, market_data: Dict) -> Dict:
         """Check for EMA crossover setup"""

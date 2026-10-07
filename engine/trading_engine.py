@@ -385,7 +385,10 @@ class TradingEngine:
             socketio.emit('decisions_update', decisions)
 
             # Broadcast analytics
+            from engine.trade_counter import get_trade_stats
+            stats = get_trade_stats()
             analytics = db_get_analytics()
+            analytics.update(stats)
             socketio.emit('analytics_update', analytics)
 
             # Broadcast history (closed trades)
@@ -785,27 +788,60 @@ class TradingEngine:
         """Execute trading decision"""
         if not decision:
             return
-            
+
         action = decision.get("action", "HOLD")
         symbol = decision.get("symbol")
-        
+
         if action == "HOLD" or action == "SKIP":
             logger.debug(f"{symbol}: HOLD - {decision.get('reasoning', 'No clear setup')}")
             return
-            
+
         # Check if we already have position
         if any(p["symbol"] == symbol for p in self.positions):
             logger.info(f"{symbol}: Already have position, skipping")
             return
-        
+
+        # Check daily trade limit and loss limit
+        try:
+            from engine.trade_counter import can_trade_today, calculate_lot_adjustment
+            strategy_obj = self.strategy_manager.strategies.get(self.strategy_manager.active_strategy) if self.strategy_manager else None
+            max_trades = getattr(strategy_obj, 'max_trades_per_day', 10) if strategy_obj else 10
+            max_daily_loss = getattr(strategy_obj, 'daily_loss_limit_pct', 3.0) if strategy_obj else 3.0
+            account_balance = self.mt5.get_account_info().get('balance', 0) if self.mt5 else 0
+            can_trade, reason = can_trade_today(max_trades, max_daily_loss, account_balance)
+            if not can_trade:
+                logger.info(f"{symbol}: {reason}")
+                return
+        except Exception as e:
+            logger.error(f"Trade counter error: {e}")
+
         # Check market regime filter
         regime_check = self._check_regime_filter(symbol, action)
         if not regime_check["allowed"]:
             logger.info(f"{symbol}: {regime_check['reason']}")
             return
-        
+
         # Check correlation filter
         lot_size = decision.get("lot_size", self.config.get("trading", {}).get("default_lot_size", 0.01))
+
+        # Apply streak-based lot adjustment
+        try:
+            from engine.trade_counter import calculate_lot_adjustment
+            strategy_obj = self.strategy_manager.strategies.get(self.strategy_manager.active_strategy) if self.strategy_manager else None
+            if strategy_obj:
+                multiplier = calculate_lot_adjustment(
+                    loss_reduction_pct=strategy_obj.loss_streak_reduction_pct,
+                    loss_threshold=strategy_obj.loss_streak_threshold,
+                    win_increase_pct=strategy_obj.win_streak_increase_pct,
+                    win_threshold=strategy_obj.win_streak_threshold
+                )
+                original_lot = lot_size
+                lot_size = round(lot_size * multiplier, 2)
+                if multiplier != 1.0:
+                    logger.info(f"{symbol}: Lot adjusted {original_lot} -> {lot_size} (streak multiplier {multiplier})")
+        except Exception as e:
+            logger.error(f"Streak adjustment error: {e}")
+
         corr_check = self.correlation_controller.can_open_position(symbol, self.positions, lot_size)
         if not corr_check["allowed"]:
             logger.info(f"{symbol}: {corr_check['reason']}")

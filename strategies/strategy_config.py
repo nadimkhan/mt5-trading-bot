@@ -37,7 +37,12 @@ DEFAULT_CONFIGS = {
             "rsi_oversold": {"value": 30, "type": "int", "min": 5, "max": 50, "label": "RSI Oversold", "description": "Skip SELL if RSI below this"},
             "max_spread_pips": {"value": 3.0, "type": "float", "min": 0.1, "max": 20.0, "step": 0.1, "label": "Max Spread (pips)", "description": "Skip trade if spread exceeds this"},
             "max_open_trades": {"value": 2, "type": "int", "min": 1, "max": 10, "label": "Max Open Trades", "description": "Maximum concurrent positions"},
+            "max_trades_per_day": {"value": 10, "type": "int", "min": 1, "max": 50, "label": "Max Trades Per Day", "description": "Stop trading after N trades in a day"},
             "daily_loss_limit_pct": {"value": 3.0, "type": "float", "min": 0.5, "max": 10.0, "step": 0.5, "label": "Daily Loss Limit %", "description": "Stop trading if daily loss exceeds this"},
+            "loss_streak_reduction_pct": {"value": 50, "type": "int", "min": 0, "max": 100, "label": "Loss Streak Reduction %", "description": "Reduce lot size by this % after consecutive losses (0=disabled)"},
+            "loss_streak_threshold": {"value": 2, "type": "int", "min": 1, "max": 10, "label": "Loss Streak Threshold", "description": "Number of consecutive losses before reducing size"},
+            "win_streak_increase_pct": {"value": 0, "type": "int", "min": 0, "max": 100, "label": "Win Streak Bonus %", "description": "Increase lot size by this % after consecutive wins (0=disabled)"},
+            "win_streak_threshold": {"value": 3, "type": "int", "min": 1, "max": 10, "label": "Win Streak Threshold", "description": "Number of consecutive wins before bonus size"},
         }
     },
     "trend": {
@@ -55,7 +60,12 @@ DEFAULT_CONFIGS = {
             "rsi_oversold": {"value": 25, "type": "int", "min": 5, "max": 50, "label": "RSI Oversold"},
             "max_spread_pips": {"value": 5.0, "type": "float", "min": 0.1, "max": 20.0, "step": 0.1, "label": "Max Spread (pips)"},
             "max_open_trades": {"value": 3, "type": "int", "min": 1, "max": 10, "label": "Max Open Trades"},
+            "max_trades_per_day": {"value": 15, "type": "int", "min": 1, "max": 50, "label": "Max Trades Per Day"},
             "daily_loss_limit_pct": {"value": 3.0, "type": "float", "min": 0.5, "max": 10.0, "step": 0.5, "label": "Daily Loss Limit %"},
+            "loss_streak_reduction_pct": {"value": 40, "type": "int", "min": 0, "max": 100, "label": "Loss Streak Reduction %"},
+            "loss_streak_threshold": {"value": 2, "type": "int", "min": 1, "max": 10, "label": "Loss Streak Threshold"},
+            "win_streak_increase_pct": {"value": 20, "type": "int", "min": 0, "max": 100, "label": "Win Streak Bonus %"},
+            "win_streak_threshold": {"value": 3, "type": "int", "min": 1, "max": 10, "label": "Win Streak Threshold"},
         }
     }
 }

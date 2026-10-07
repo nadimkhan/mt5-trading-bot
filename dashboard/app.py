@@ -162,7 +162,12 @@ def api_positions():
 
 @app.route('/api/analytics')
 def api_analytics():
-    return jsonify(db_get_analytics())
+    """Get comprehensive trade analytics"""
+    from engine.trade_counter import get_trade_stats
+    stats = get_trade_stats()
+    basic = db_get_analytics()
+    basic.update(stats)
+    return jsonify(basic)
 
 
 @app.route('/api/decisions')
