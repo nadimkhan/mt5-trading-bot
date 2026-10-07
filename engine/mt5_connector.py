@@ -58,7 +58,7 @@ class MT5Connector:
         try:
             mt5.account_info()
             return True
-        except:
+        except Exception:
             self.connected = False
             return False
     

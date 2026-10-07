@@ -385,6 +385,6 @@ def volume_min_for_symbol(symbol: str) -> float:
         info = mt5.symbol_info(symbol)
         if info:
             return info.volume_min
-    except:
+    except Exception:
         pass
     return 0.01

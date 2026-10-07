@@ -64,7 +64,7 @@ class Safeguards:
         
         try:
             return self.mt5.is_connected()
-        except:
+        except Exception:
             return False
     
     def handle_disconnect(self) -> dict:

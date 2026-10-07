@@ -8,6 +8,10 @@ import logging
 import sqlite3
 from datetime import datetime
 import json
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from engine.constants import DB_PATH
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +27,6 @@ app.config['SECRET_KEY'] = 'mt5-trading-bot-secret'
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 engine = None
-DB_PATH = "E:/projects/mt5-trading-bot/bot.db"
 
 
 def get_db_connection():
@@ -96,7 +99,7 @@ def db_get_analytics():
         try:
             positions = engine.mt5.get_positions()
             open_trades = len(positions) if positions else 0
-        except:
+        except Exception:
             pass
     cursor.execute("SELECT COUNT(*) FROM trades WHERE pnl > 0 AND status = 'CLOSED'")
     win_count = cursor.fetchone()[0]
@@ -155,7 +158,7 @@ def api_positions():
                 if 'time' in p and hasattr(p['time'], 'isoformat'):
                     p['time'] = p['time'].isoformat()
             return jsonify(positions)
-        except:
+        except Exception:
             return jsonify([])
     return jsonify([])
 

@@ -5,9 +5,13 @@ import logging
 import json
 import time
 import sqlite3
+import os
+import sys
 from datetime import datetime
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from engine.constants import DB_PATH, CONFIG_PATH
 from engine.mt5_connector import MT5Connector
 from engine.indicators import analyze_market, detect_market_regime, is_tradeable_regime, is_volume_confirmed, is_momentum_strong
 from engine.trade_manager import TradeManager
@@ -19,10 +23,6 @@ from ai.ai_filter import AIFilter, NewsChecker
 from ai.ai_analyzer import AIAnalyzer
 
 logger = logging.getLogger(__name__)
-
-# Database path
-DB_PATH = "E:/projects/mt5-trading-bot/bot.db"
-CONFIG_PATH = "E:/projects/mt5-trading-bot/config.yaml"
 
 
 def get_db_connection():
@@ -363,7 +363,7 @@ class TradingEngine:
                             p['time'] = p['time'].isoformat()
                     # Sync DB - close orphaned trades
                     db_close_orphaned_trades(positions)
-                except:
+                except Exception:
                     pass
 
             # Get recent AI decisions (extract nested decision object)
@@ -414,7 +414,7 @@ class TradingEngine:
                         'spread': spread or 0,
                         'trend_direction': trend
                     }
-                except:
+                except Exception:
                     pass
             socketio.emit('market_update', market_data)
 
@@ -682,11 +682,7 @@ class TradingEngine:
                 # Check session filter
                 if not self.session_filter.is_tradeable_time(symbol):
                     continue
-                
-                # Check news filter
-                if self.news_checker.is_news_window(symbol):
-                    continue
-                
+
                 # Get strategy signal
                 setup = self.strategy_manager.get_signal(market_data)
 
@@ -863,6 +859,9 @@ class TradingEngine:
 
         # Check correlation filter
         lot_size = decision.get("lot_size", self.config.get("trading", {}).get("default_lot_size", 0.01))
+        # Safety: ensure lot_size is valid
+        if not lot_size or lot_size <= 0:
+            lot_size = self.config.get("trading", {}).get("default_lot_size", 0.01)
 
         # Apply streak-based lot adjustment
         try:
@@ -922,7 +921,15 @@ class TradingEngine:
             tp=tp_price,
             comment=f"AI:{decision.get('strategy', 'AI')}"
         )
-        
+
+        if not result:
+            logger.error(f"Order failed: {symbol} {action} {lot_size} - no response from MT5")
+            return
+
+        if result.get("retcode") != 10009:  # Not TRADE_RETCODE_DONE
+            logger.error(f"Order rejected: {symbol} {action} retcode={result.get('retcode')} comment={result.get('comment')}")
+            return
+
         # Get spread at entry and market regime
         spread_at_entry = self.mt5.get_spread(symbol) if hasattr(self.mt5, 'get_spread') else 0
         market_regime = regime_check.get("regime", {}).get("regime", "UNKNOWN")
@@ -931,8 +938,8 @@ class TradingEngine:
         expected_price = current_price
         actual_price = result.get("price", expected_price)
         slippage_pips = abs(actual_price - expected_price) * pip_multiplier if actual_price else 0
-        
-        if result:
+
+        if result and result.get("retcode") == 10009:  # TRADE_RETCODE_DONE
             self.stats["trades_today"] += 1
             self.stats["total_trades"] += 1
             logger.info(f"ORDER SENT: {action} {lot_size} {symbol} @ {current_price} | Spread: {spread_at_entry} | Regime: {market_regime}")
@@ -1049,7 +1056,7 @@ if __name__ == "__main__":
     try:
         with open("config.yaml", "r") as f:
             config = yaml.safe_load(f)
-    except:
+    except (FileNotFoundError, yaml.YAMLError):
         config = {
             "ai": {"provider": "claude", "api_key": None},
             "trading": {"symbols": ["EURUSD"]},

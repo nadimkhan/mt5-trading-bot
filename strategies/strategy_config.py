@@ -5,12 +5,15 @@ Each strategy has its own config that can be edited via the dashboard.
 import json
 import os
 import logging
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from engine.constants import STRATEGY_CONFIGS_PATH
 from pathlib import Path
 from threading import Lock
 
 logger = logging.getLogger(__name__)
 
-CONFIG_FILE = "E:/projects/mt5-trading-bot/strategy_configs.json"
+CONFIG_FILE = STRATEGY_CONFIGS_PATH
 _lock = Lock()
 
 # Default configurations for each strategy

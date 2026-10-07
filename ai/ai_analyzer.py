@@ -335,7 +335,7 @@ Output JSON only, no other text. If no clear setup, output HOLD for that symbol.
                         candidate = json.loads(full_obj_str)
                         if 'symbol' in candidate and 'action' in candidate:
                             decisions.append(candidate)
-                    except:
+                    except (json.JSONDecodeError, ValueError, KeyError):
                         continue
 
                 if decisions:

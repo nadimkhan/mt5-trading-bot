@@ -4,12 +4,14 @@ Adjusts lot size based on streak history
 """
 import sqlite3
 import logging
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from engine.constants import DB_PATH
 from datetime import datetime, date
 from typing import Tuple, Optional
 
 logger = logging.getLogger(__name__)
-
-DB_PATH = "E:/projects/mt5-trading-bot/bot.db"
 
 
 def get_db_connection():
