@@ -52,15 +52,15 @@ def get_enabled_symbols():
         return ['XAUUSD', 'EURUSD', 'GBPUSD', 'BRNUSD']
 
 
-def db_insert_trade(symbol, action, lot_size, entry_price):
-    """Insert a new trade record into DB"""
+def db_insert_trade(symbol, action, lot_size, entry_price, spread=0, regime="UNKNOWN", slippage=0):
+    """Insert a new trade record into DB with enhanced logging"""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO trades (symbol, action, lot_size, entry_price, status, opened_at)
-            VALUES (?, ?, ?, ?, 'OPEN', ?)
-        """, (symbol, action, lot_size, entry_price, datetime.now().isoformat()))
+            INSERT INTO trades (symbol, action, lot_size, entry_price, spread, regime, slippage, status, opened_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'OPEN', ?)
+        """, (symbol, action, lot_size, entry_price, spread, regime, slippage, datetime.now().isoformat()))
         trade_id = cursor.lastrowid
         conn.commit()
         conn.close()
@@ -70,16 +70,16 @@ def db_insert_trade(symbol, action, lot_size, entry_price):
         return None
 
 
-def db_update_trade(trade_id, exit_price, pnl):
-    """Update trade record when closed"""
+def db_update_trade(trade_id, exit_price, pnl, spread_at_exit=0, slippage=0):
+    """Update trade record when closed with enhanced logging"""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("""
             UPDATE trades 
-            SET exit_price = ?, pnl = ?, status = 'CLOSED', closed_at = ?
+            SET exit_price = ?, pnl = ?, spread_at_exit = ?, slippage = ?, status = 'CLOSED', closed_at = ?
             WHERE id = ?
-        """, (exit_price, pnl, datetime.now().isoformat(), trade_id))
+        """, (exit_price, pnl, spread_at_exit, slippage, datetime.now().isoformat(), trade_id))
         conn.commit()
         conn.close()
     except Exception as e:
@@ -585,13 +585,27 @@ class TradingEngine:
             comment=f"AI:{decision.get('strategy', 'AI')}"
         )
         
+        # Get spread at entry and market regime
+        spread_at_entry = self.mt5.get_spread(symbol) if hasattr(self.mt5, 'get_spread') else 0
+        market_regime = regime_check.get("regime", {}).get("regime", "UNKNOWN")
+        
+        # Calculate slippage (difference between expected and actual fill price)
+        expected_price = current_price
+        actual_price = result.get("price", expected_price)
+        slippage_pips = abs(actual_price - expected_price) * pip_multiplier if actual_price else 0
+        
         if result:
             self.stats["trades_today"] += 1
             self.stats["total_trades"] += 1
-            logger.info(f"ORDER SENT: {action} {lot_size} {symbol} @ {current_price}")
+            logger.info(f"ORDER SENT: {action} {lot_size} {symbol} @ {current_price} | Spread: {spread_at_entry} | Regime: {market_regime}")
             
-            # Insert trade to DB
-            trade_id = db_insert_trade(symbol, action, lot_size, current_price)
+            # Insert trade to DB with enhanced logging
+            trade_id = db_insert_trade(
+                symbol, action, lot_size, current_price,
+                spread=spread_at_entry,
+                regime=market_regime,
+                slippage=round(slippage_pips, 1)
+            )
             
             # Log trade
             trade_log = {

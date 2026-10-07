@@ -89,7 +89,22 @@ class MT5Connector:
         except Exception as e:
             logger.error(f"Failed to get account info: {e}")
             return None
-            
+
+    def get_spread(self, symbol):
+        """Get current spread for a symbol in pips"""
+        try:
+            info = mt5.symbol_info_tick(symbol)
+            if info is None:
+                return 0
+            # Spread is usually in points, convert to pips
+            symbol_info = mt5.symbol_info(symbol)
+            if symbol_info and symbol_info.digits == 5:
+                return info.spread / 10  # 5-digit broker
+            return info.spread
+        except Exception as e:
+            logger.error(f"Failed to get spread for {symbol}: {e}")
+            return 0
+
     def get_symbol_info(self, symbol):
         """Get symbol information"""
         try:
