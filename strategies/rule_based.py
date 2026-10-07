@@ -22,17 +22,56 @@ class ScalpStrategy:
     
     def __init__(self, config: dict = None):
         self.config = config or {}
-        
-        # Strategy parameters
-        strat_config = self.config.get("strategy", {})
-        self.ema_fast = strat_config.get("ema_fast", 9)
-        self.ema_medium = strat_config.get("ema_medium", 20)
-        self.ema_slow = strat_config.get("ema_slow", 50)
-        self.ema_trend = strat_config.get("ema_trend", 200)
-        
+        # Load saved values from disk if available
+        try:
+            from strategies.strategy_config import load_configs, get_strategy_param
+            saved = load_configs().get("scalp", {})
+            self.strategy_config = saved.get("parameters", {})
+        except Exception:
+            self.strategy_config = {}
+
+        # Strategy parameters - read from config or use defaults
+        self.ema_fast = int(self._get_param("ema_fast", 9))
+        self.ema_medium = int(self._get_param("ema_medium", 20))
+        self.ema_slow = int(self._get_param("ema_slow", 50))
+        self.ema_trend = int(self._get_param("ema_trend", 200))
+
         # Entry thresholds
-        self.pullback_max_pips = strat_config.get("pullback_max_pips", 15)
-        self.min_ema_separation = strat_config.get("min_ema_separation_pips", 5)
+        self.pullback_max_pips = int(self._get_param("pullback_max_pips", 15))
+        self.min_confidence = int(self._get_param("min_confidence", 60))
+        self.atr_sl_multiplier = float(self._get_param("atr_sl_multiplier", 3.0))
+        self.atr_tp_multiplier = float(self._get_param("atr_tp_multiplier", 5.0))
+        self.min_risk_reward = float(self._get_param("min_risk_reward", 1.5))
+        self.rsi_overbought = int(self._get_param("rsi_overbought", 70))
+        self.rsi_oversold = int(self._get_param("rsi_oversold", 30))
+        self.max_spread_pips = float(self._get_param("max_spread_pips", 3.0))
+        self.max_open_trades = int(self._get_param("max_open_trades", 2))
+        self.daily_loss_limit_pct = float(self._get_param("daily_loss_limit_pct", 3.0))
+
+    def _get_param(self, name, default):
+        """Get parameter from strategy config or fallback to default"""
+        if name in self.strategy_config:
+            return self.strategy_config[name].get("value", default)
+        return default
+
+    def reload_config(self, all_configs):
+        """Reload configuration from saved configs"""
+        saved = all_configs.get("scalp", {})
+        self.strategy_config = saved.get("parameters", {})
+        self.ema_fast = int(self._get_param("ema_fast", 9))
+        self.ema_medium = int(self._get_param("ema_medium", 20))
+        self.ema_slow = int(self._get_param("ema_slow", 50))
+        self.ema_trend = int(self._get_param("ema_trend", 200))
+        self.pullback_max_pips = int(self._get_param("pullback_max_pips", 15))
+        self.min_confidence = int(self._get_param("min_confidence", 60))
+        self.atr_sl_multiplier = float(self._get_param("atr_sl_multiplier", 3.0))
+        self.atr_tp_multiplier = float(self._get_param("atr_tp_multiplier", 5.0))
+        self.min_risk_reward = float(self._get_param("min_risk_reward", 1.5))
+        self.rsi_overbought = int(self._get_param("rsi_overbought", 70))
+        self.rsi_oversold = int(self._get_param("rsi_oversold", 30))
+        self.max_spread_pips = float(self._get_param("max_spread_pips", 3.0))
+        self.max_open_trades = int(self._get_param("max_open_trades", 2))
+        self.daily_loss_limit_pct = float(self._get_param("daily_loss_limit_pct", 3.0))
         
     def check_setup(self, market_data: Dict) -> Dict:
         """
@@ -193,10 +232,49 @@ class TrendFollowingStrategy:
     Simple trend following using EMA crossover
     AI filters out ranging markets
     """
-    
+
     def __init__(self, config: dict = None):
         self.config = config or {}
-        
+        try:
+            from strategies.strategy_config import load_configs
+            saved = load_configs().get("trend", {})
+            self.strategy_config = saved.get("parameters", {})
+        except Exception:
+            self.strategy_config = {}
+
+        # Load configurable params
+        self.ema_fast = int(self._get_param("ema_fast", 9))
+        self.ema_slow = int(self._get_param("ema_slow", 21))
+        self.min_confidence = int(self._get_param("min_confidence", 50))
+        self.atr_sl_multiplier = float(self._get_param("atr_sl_multiplier", 2.5))
+        self.atr_tp_multiplier = float(self._get_param("atr_tp_multiplier", 6.0))
+        self.min_risk_reward = float(self._get_param("min_risk_reward", 2.0))
+        self.rsi_overbought = int(self._get_param("rsi_overbought", 75))
+        self.rsi_oversold = int(self._get_param("rsi_oversold", 25))
+        self.max_spread_pips = float(self._get_param("max_spread_pips", 5.0))
+        self.max_open_trades = int(self._get_param("max_open_trades", 3))
+        self.daily_loss_limit_pct = float(self._get_param("daily_loss_limit_pct", 3.0))
+
+    def _get_param(self, name, default):
+        if name in self.strategy_config:
+            return self.strategy_config[name].get("value", default)
+        return default
+
+    def reload_config(self, all_configs):
+        saved = all_configs.get("trend", {})
+        self.strategy_config = saved.get("parameters", {})
+        self.ema_fast = int(self._get_param("ema_fast", 9))
+        self.ema_slow = int(self._get_param("ema_slow", 21))
+        self.min_confidence = int(self._get_param("min_confidence", 50))
+        self.atr_sl_multiplier = float(self._get_param("atr_sl_multiplier", 2.5))
+        self.atr_tp_multiplier = float(self._get_param("atr_tp_multiplier", 6.0))
+        self.min_risk_reward = float(self._get_param("min_risk_reward", 2.0))
+        self.rsi_overbought = int(self._get_param("rsi_overbought", 75))
+        self.rsi_oversold = int(self._get_param("rsi_oversold", 25))
+        self.max_spread_pips = float(self._get_param("max_spread_pips", 5.0))
+        self.max_open_trades = int(self._get_param("max_open_trades", 3))
+        self.daily_loss_limit_pct = float(self._get_param("daily_loss_limit_pct", 3.0))
+
     def check_setup(self, market_data: Dict) -> Dict:
         """Check for EMA crossover setup"""
         m15 = market_data.get('M15', {})

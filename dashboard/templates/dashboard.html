@@ -155,6 +155,30 @@
         .modal-buttons { display: flex; gap: 12px; justify-content: center; }
         .modal-btn { padding: 10px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; border: none; font-family: inherit; }
         .modal-btn.primary { background: var(--accent-cyan); color: #000; }
+        .modal-btn.secondary { background: var(--bg-card-hover); color: var(--text-primary); border: 1px solid var(--border-color); }
+        .modal-btn.danger { background: var(--accent-red); color: #fff; }
+
+        .config-modal-content { max-width: 800px; max-height: 85vh; text-align: left; padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+        .config-modal-content h3 { padding: 20px 24px; border-bottom: 1px solid var(--border-color); margin: 0; }
+        .config-tabs { display: flex; gap: 8px; padding: 12px 24px; border-bottom: 1px solid var(--border-color); }
+        .config-tab { padding: 8px 16px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-secondary); color: var(--text-secondary); cursor: pointer; font-size: 13px; font-weight: 500; }
+        .config-tab.active { background: var(--accent-cyan); color: #000; border-color: var(--accent-cyan); }
+        .config-body { flex: 1; overflow-y: auto; padding: 20px 24px; }
+        .config-section { display: none; }
+        .config-section.active { display: block; }
+        .config-param { margin-bottom: 16px; padding: 12px; background: var(--bg-secondary); border-radius: 8px; border: 1px solid var(--border-color); }
+        .config-param-label { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+        .config-param-label .label { font-weight: 600; font-size: 13px; }
+        .config-param-label .current-value { font-family: 'JetBrains Mono', monospace; color: var(--accent-cyan); font-size: 14px; font-weight: 600; }
+        .config-param-desc { font-size: 11px; color: var(--text-muted); margin-bottom: 8px; }
+        .config-param input[type="number"] { width: 100%; padding: 8px 12px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-family: 'JetBrains Mono', monospace; font-size: 14px; }
+        .config-param input[type="number"]:focus { outline: none; border-color: var(--accent-cyan); }
+        .config-param .range-input { display: flex; align-items: center; gap: 12px; }
+        .config-param input[type="range"] { flex: 1; }
+        .config-buttons { display: flex; gap: 8px; padding: 16px 24px; border-top: 1px solid var(--border-color); justify-content: space-between; }
+
+        .sidebar-btn { width: 100%; margin-top: 8px; padding: 8px 12px; background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-secondary); border-radius: 6px; font-family: inherit; font-size: 12px; cursor: pointer; transition: all 0.2s; }
+        .sidebar-btn:hover { border-color: var(--accent-purple); color: var(--accent-purple); }
     </style>
 </head>
 <body>
@@ -182,6 +206,7 @@
                     <button class="strategy-btn active" id="btn-scalp" data-strategy="scalp"><span class="strategy-name">Scalp</span><span class="strategy-desc">H4+M15+M1</span></button>
                     <button class="strategy-btn" id="btn-trend" data-strategy="trend"><span class="strategy-name">Trend</span><span class="strategy-desc">EMA Cross</span></button>
                 </div>
+                <button class="sidebar-btn" id="btn-config">⚙ Configure Strategies</button>
             </nav>
         </aside>
 
@@ -218,6 +243,21 @@
 
     <div id="symbolModal" class="modal">
         <div class="modal-content"><h3>Notification</h3><p id="modal-message">Operation completed</p><div class="modal-buttons"><button class="modal-btn primary" id="modal-ok">OK</button></div></div>
+    </div>
+
+    <div id="configModal" class="modal">
+        <div class="modal-content config-modal-content">
+            <h3>⚙ Strategy Configuration</h3>
+            <div class="config-tabs" id="config-tabs"></div>
+            <div class="config-body" id="config-body"></div>
+            <div class="config-buttons">
+                <button class="modal-btn danger" id="btn-reset-config">Reset to Defaults</button>
+                <div>
+                    <button class="modal-btn secondary" id="btn-cancel-config">Cancel</button>
+                    <button class="modal-btn primary" id="btn-save-config">Save Changes</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -332,6 +372,120 @@
 
         function showModal(message) { document.getElementById('modal-message').textContent = message; document.getElementById('symbolModal').classList.add('show'); }
         function closeModal() { document.getElementById('symbolModal').classList.remove('show'); }
+
+        // Strategy configuration modal
+        let configData = {};
+        let activeConfigTab = 'scalp';
+        const pendingChanges = {};
+
+        document.getElementById('btn-config').addEventListener('click', openConfigModal);
+        document.getElementById('btn-cancel-config').addEventListener('click', closeConfigModal);
+        document.getElementById('btn-save-config').addEventListener('click', saveConfigChanges);
+        document.getElementById('btn-reset-config').addEventListener('click', resetConfigs);
+
+        function openConfigModal() {
+            fetch('/api/strategies/config').then(r => r.json()).then(configs => {
+                configData = JSON.parse(JSON.stringify(configs));
+                Object.keys(pendingChanges).forEach(k => delete pendingChanges[k]);
+                renderConfigTabs();
+                renderConfigBody();
+                document.getElementById('configModal').classList.add('show');
+            });
+        }
+
+        function closeConfigModal() {
+            document.getElementById('configModal').classList.remove('show');
+            Object.keys(pendingChanges).forEach(k => delete pendingChanges[k]);
+        }
+
+        function renderConfigTabs() {
+            const tabs = document.getElementById('config-tabs');
+            let html = '';
+            Object.keys(configData).forEach(name => {
+                const active = name === activeConfigTab ? 'active' : '';
+                html += '<button class="config-tab ' + active + '" data-strategy="' + name + '">' + configData[name].name + '</button>';
+            });
+            tabs.innerHTML = html;
+            tabs.querySelectorAll('.config-tab').forEach(tab => {
+                tab.addEventListener('click', e => {
+                    activeConfigTab = e.target.dataset.strategy;
+                    renderConfigTabs();
+                    renderConfigBody();
+                });
+            });
+        }
+
+        function renderConfigBody() {
+            const body = document.getElementById('config-body');
+            const strategy = configData[activeConfigTab];
+            if (!strategy) { body.innerHTML = ''; return; }
+            let html = '<div class="config-section active"><p style="color: var(--text-muted); margin-bottom: 16px; font-size: 12px;">' + strategy.description + '</p>';
+            Object.keys(strategy.parameters).forEach(pkey => {
+                const p = strategy.parameters[pkey];
+                const step = p.step || 1;
+                const changeKey = activeConfigTab + '.' + pkey;
+                const currentVal = (changeKey in pendingChanges) ? pendingChanges[changeKey] : p.value;
+                html += '<div class="config-param">';
+                html += '<div class="config-param-label"><span class="label">' + p.label + '</span><span class="current-value" id="display-' + pkey + '">' + currentVal + '</span></div>';
+                if (p.description) html += '<div class="config-param-desc">' + p.description + '</div>';
+                html += '<div class="range-input">';
+                if (p.min !== undefined) html += '<input type="range" min="' + p.min + '" max="' + p.max + '" step="' + step + '" value="' + currentVal + '" data-param="' + pkey + '" style="flex:1">';
+                html += '<input type="number" min="' + (p.min || 0) + '" max="' + (p.max || 999) + '" step="' + step + '" value="' + currentVal + '" data-param="' + pkey + '" style="width: 80px;">';
+                html += '</div></div>';
+            });
+            html += '</div>';
+            body.innerHTML = html;
+            // Wire up input events
+            body.querySelectorAll('input').forEach(input => {
+                input.addEventListener('input', e => {
+                    const pkey = e.target.dataset.param;
+                    const val = parseFloat(e.target.value);
+                    pendingChanges[activeConfigTab + '.' + pkey] = val;
+                    // Sync paired inputs
+                    body.querySelectorAll('input[data-param="' + pkey + '"]').forEach(other => {
+                        if (other !== e.target) other.value = val;
+                    });
+                    const display = document.getElementById('display-' + pkey);
+                    if (display) display.textContent = val;
+                });
+            });
+        }
+
+        function saveConfigChanges() {
+            const promises = Object.keys(pendingChanges).map(key => {
+                const [strategy, param] = key.split('.');
+                return fetch('/api/strategies/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ strategy, param, value: pendingChanges[key] })
+                }).then(r => r.json());
+            });
+            Promise.all(promises).then(results => {
+                const errors = results.filter(r => r.error);
+                if (errors.length > 0) {
+                    showModal('Some changes failed: ' + errors.map(e => e.error).join(', '));
+                } else {
+                    showModal('Configuration saved successfully!');
+                    closeConfigModal();
+                }
+            });
+        }
+
+        function resetConfigs() {
+            if (confirm('Reset all strategies to default settings? This cannot be undone.')) {
+                fetch('/api/strategies/reset', { method: 'POST' }).then(r => r.json()).then(data => {
+                    if (data.configs) {
+                        configData = data.configs;
+                        Object.keys(pendingChanges).forEach(k => delete pendingChanges[k]);
+                        renderConfigTabs();
+                        renderConfigBody();
+                        showModal('Reset to defaults');
+                    } else {
+                        showModal('Failed to reset');
+                    }
+                });
+            }
+        }
     </script>
 </body>
 </html>

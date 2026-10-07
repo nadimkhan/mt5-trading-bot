@@ -254,7 +254,52 @@ def api_history():
 
 @app.route('/api/strategies')
 def api_get_strategies():
-    return jsonify({"available": ['scalp', 'trend'], "current": 'scalp'})
+    """Get all strategies with their configurations"""
+    from strategies.strategy_config import load_configs
+    configs = load_configs()
+    current = 'scalp'
+    if engine and hasattr(engine, 'strategy_manager'):
+        current = engine.strategy_manager.active_strategy
+    return jsonify({"available": list(configs.keys()), "current": current, "configs": configs})
+
+
+@app.route('/api/strategies/config', methods=['GET'])
+def api_get_strategy_configs():
+    """Get all strategy configurations"""
+    from strategies.strategy_config import load_configs
+    return jsonify(load_configs())
+
+
+@app.route('/api/strategies/config', methods=['POST'])
+def api_update_strategy_config():
+    """Update a strategy parameter"""
+    from strategies.strategy_config import load_configs, save_configs, update_strategy_param
+    data = request.get_json()
+    strategy = data.get('strategy')
+    param = data.get('param')
+    value = data.get('value')
+
+    configs = load_configs()
+    success, msg = update_strategy_param(configs, strategy, param, value)
+    if success:
+        save_configs(configs)
+        # Apply to engine if running
+        if engine and hasattr(engine, 'strategy_manager'):
+            strategy_obj = engine.strategy_manager.strategies.get(strategy)
+            if strategy_obj and hasattr(strategy_obj, 'reload_config'):
+                strategy_obj.reload_config(configs)
+        return jsonify({"status": "ok", "strategy": strategy, "param": param, "value": value})
+    return jsonify({"error": msg}), 400
+
+
+@app.route('/api/strategies/reset', methods=['POST'])
+def api_reset_strategies():
+    """Reset all strategies to default configs"""
+    from strategies.strategy_config import reset_configs
+    configs = reset_configs()
+    if configs:
+        return jsonify({"status": "ok", "configs": configs})
+    return jsonify({"error": "Failed to reset"}), 500
 
 
 @app.route('/api/strategies/set', methods=['POST'])
