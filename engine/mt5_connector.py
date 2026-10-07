@@ -245,6 +245,29 @@ class MT5Connector:
             logger.error(f"Failed to get orders: {e}")
             return []
 
+    def get_history_deals(self, from_date, to_date):
+        """Get closed deals from MT5 history"""
+        try:
+            deals = mt5.history_deals_get(from_date, to_date)
+            if deals is None:
+                return []
+            result = []
+            for deal in deals:
+                result.append({
+                    'ticket': deal.ticket,
+                    'symbol': deal.symbol,
+                    'entry': deal.entry,
+                    'type': deal.type,
+                    'volume': deal.volume,
+                    'price': deal.price,
+                    'profit': deal.profit,
+                    'time': datetime.fromtimestamp(deal.time)
+                })
+            return result
+        except Exception as e:
+            logger.error(f"Failed to get history deals: {e}")
+            return []
+
     def get_symbols_list(self):
         """Get all available trading symbols from MT5"""
         try:

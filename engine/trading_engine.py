@@ -78,7 +78,7 @@ def db_update_trade(trade_id, exit_price, pnl, spread_at_exit=0, slippage=0):
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("""
-            UPDATE trades 
+            UPDATE trades
             SET exit_price = ?, pnl = ?, spread_at_exit = ?, slippage = ?, status = 'CLOSED', closed_at = ?
             WHERE id = ?
         """, (exit_price, pnl, spread_at_exit, slippage, datetime.now().isoformat(), trade_id))
@@ -86,6 +86,52 @@ def db_update_trade(trade_id, exit_price, pnl, spread_at_exit=0, slippage=0):
         conn.close()
     except Exception as e:
         logger.error(f"Failed to update trade in DB: {e}")
+
+
+def db_close_orphaned_trades(mt5_positions):
+    """Close OPEN trades in DB that are no longer open in MT5 (mark as closed with real P&L)"""
+    try:
+        import MetaTrader5 as mt5
+        from datetime import datetime, timedelta
+
+        # Fetch history deals ONCE for the whole sync
+        to_date = datetime.now()
+        from_date = to_date - timedelta(days=7)
+        deals = mt5.history_deals_get(from_date, to_date) or []
+        # Build map: symbol -> latest OUT deal (entry=1 means closing trade)
+        close_deals_by_symbol = {}
+        for d in deals:
+            if d.entry == 1 and d.symbol:  # OUT (closing deal)
+                # Keep the most recent close per symbol
+                if d.symbol not in close_deals_by_symbol:
+                    close_deals_by_symbol[d.symbol] = d
+                elif d.time > close_deals_by_symbol[d.symbol].time:
+                    close_deals_by_symbol[d.symbol] = d
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, symbol, lot_size, entry_price, opened_at FROM trades WHERE status='OPEN'")
+        open_trades = cursor.fetchall()
+        conn.close()
+
+        for trade_id, symbol, lot_size, entry_price, opened_at in open_trades:
+            # Check if still open in MT5
+            still_open = any(
+                p.get('symbol') == symbol
+                for p in (mt5_positions or [])
+            )
+            if not still_open:
+                # Look up the matching close deal for this symbol
+                close_pnl = 0
+                close_price = entry_price
+                if symbol in close_deals_by_symbol:
+                    close = close_deals_by_symbol[symbol]
+                    close_pnl = close.profit
+                    close_price = close.price
+                db_update_trade(trade_id, close_price, close_pnl)
+                logger.info(f"Closed orphan trade #{trade_id} {symbol} entry={entry_price} exit={close_price} P&L={close_pnl}")
+    except Exception as e:
+        logger.error(f"Failed to close orphaned trades: {e}")
 
 
 def db_insert_ai_decision(symbol, action, lot_size, reasoning, confidence):
@@ -239,6 +285,7 @@ class TradingEngine:
         last_scalp_check = time.time()
         last_trend_update = time.time()
         last_trade_management = time.time()
+        last_broadcast = time.time()
         
         while self.running:
             try:
@@ -281,11 +328,16 @@ class TradingEngine:
                 if now - last_trend_update >= self.trend_interval:
                     self._trend_loop()
                     last_trend_update = now
-                    
+
+                # Broadcast updates to dashboard (every 5 seconds)
+                if now - last_broadcast >= 5:
+                    self._broadcast_update()
+                    last_broadcast = now
+
             except Exception as e:
                 logger.error(f"Trading loop error: {e}")
                 self.status = "ERROR"
-                
+
         self.status = "STOPPED"
         logger.info("Trading Engine STOPPED")
 
@@ -294,6 +346,77 @@ class TradingEngine:
         self.running = False
         if self.mt5:
             self.disconnect()
+
+    def _broadcast_update(self):
+        """Broadcast real-time updates to dashboard via WebSocket"""
+        try:
+            from dashboard.app import socketio, db_get_analytics
+
+            # Get current positions from MT5
+            positions = []
+            if self.mt5:
+                try:
+                    positions = self.mt5.get_positions() or []
+                    # Convert datetime objects to strings
+                    for p in positions:
+                        if 'time' in p and hasattr(p['time'], 'isoformat'):
+                            p['time'] = p['time'].isoformat()
+                    # Sync DB - close orphaned trades
+                    db_close_orphaned_trades(positions)
+                except:
+                    pass
+
+            # Get recent AI decisions (extract nested decision object)
+            decisions = []
+            for item in (self.ai_decisions[-5:] if self.ai_decisions else []):
+                if isinstance(item, dict) and 'decision' in item:
+                    d = item['decision'].copy()
+                    ts = item.get('timestamp', '')
+                    if hasattr(ts, 'isoformat'):
+                        d['created_at'] = ts.isoformat()
+                    else:
+                        d['created_at'] = str(ts)
+                    decisions.append(d)
+
+            # Broadcast positions
+            socketio.emit('positions_update', positions)
+
+            # Broadcast AI decisions
+            socketio.emit('decisions_update', decisions)
+
+            # Broadcast analytics
+            analytics = db_get_analytics()
+            socketio.emit('analytics_update', analytics)
+
+            # Broadcast history (closed trades)
+            from dashboard.app import db_get_trades
+            history = db_get_trades(20)
+            socketio.emit('history_update', history)
+
+            # Broadcast status
+            socketio.emit('status_update', {'status': self.status})
+
+            # Broadcast market data
+            market_data = {}
+            for symbol in (self.symbols or []):
+                try:
+                    tick = self.mt5.get_current_price(symbol) if self.mt5 else None
+                    spread = self.mt5.get_spread(symbol) if self.mt5 else 0
+                    trend = 'SIDEWAYS'
+                    if hasattr(self, 'trend_direction') and symbol in self.trend_direction:
+                        trend = self.trend_direction[symbol]
+                    market_data[symbol] = {
+                        'bid': tick.get('bid', 0) if tick else 0,
+                        'ask': tick.get('ask', 0) if tick else 0,
+                        'spread': spread or 0,
+                        'trend_direction': trend
+                    }
+                except:
+                    pass
+            socketio.emit('market_update', market_data)
+
+        except Exception as e:
+            logger.error(f"Broadcast error: {e}")
 
     def _trade_management_loop(self):
         """Manage open positions - breakeven, trailing stops, partial TP"""
@@ -501,7 +624,7 @@ class TradingEngine:
                         symbol=d.get("symbol", "UNKNOWN"),
                         action=d.get("action", "HOLD"),
                         lot_size=d.get("lot_size", 0.01),
-                        reasoning=d.get("reasoning", d.get("raw_response", "")[:500] if d.get("raw_response") else ""),
+                        reasoning=(d.get("entry_reason") or d.get("reasoning") or (d.get("raw_response", "")[:500] if d.get("raw_response") else ""))[:500],
                         confidence=d.get("confidence", 0)
                     )
             
@@ -538,10 +661,16 @@ class TradingEngine:
                 market_data = self.market_data.get(symbol, {})
                 if not market_data:
                     continue
-                
+
                 # Check regime filter first
-                regime = detect_market_regime(market_data, self.config)
-                if not is_tradeable_regime(regime, "trend"):
+                closes = market_data.get('closes', [])
+                highs = market_data.get('highs', [])
+                lows = market_data.get('lows', [])
+                if len(closes) >= 20 and len(highs) >= 20 and len(lows) >= 20:
+                    regime = detect_market_regime(closes, highs, lows, closes)
+                    if not is_tradeable_regime(regime, "trend"):
+                        continue
+                else:
                     continue
                 
                 # Check session filter

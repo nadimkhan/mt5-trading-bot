@@ -383,13 +383,16 @@ def is_tradeable_regime(regime_data, strategy_type="trend"):
         return True, "Ranging market confirmed"
     
     return True, "Regime check passed"
+
+
+def calculate_price_change(prices, periods):
     """Calculate price change over periods"""
     if len(prices) < periods + 1:
         return None
-        
+
     change = prices[-1] - prices[-(periods + 1)]
     percent = (change / prices[-(periods + 1)]) * 100
-    
+
     return {
         "change": round(change, 5),
         "percent": round(percent, 2),
