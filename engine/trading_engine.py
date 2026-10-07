@@ -11,6 +11,7 @@ from pathlib import Path
 from engine.mt5_connector import MT5Connector
 from engine.indicators import analyze_market, detect_market_regime, is_tradeable_regime
 from engine.trade_manager import TradeManager
+from engine.session_filter import SessionFilter
 from ai.ai_analyzer import AIAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -144,6 +145,9 @@ class TradingEngine:
         
         # Initialize trade manager
         self.trade_manager = TradeManager(None, config)  # Will be set after MT5 init
+        
+        # Initialize session filter
+        self.session_filter = SessionFilter(config)
 
     def initialize(self):
         """Initialize MT5 and AI connections"""
@@ -314,7 +318,13 @@ class TradingEngine:
             self.status = "RISK_LIMIT_REACHED"
             logger.warning("Risk limit reached, skipping trading")
             return
-            
+        
+        # Check session filter - only trade during optimal hours
+        session_check = self.session_filter.is_trading_allowed()
+        if not session_check["allowed"]:
+            logger.debug(f"Session filter: {session_check['reason']}")
+            return
+        
         # Get current positions
         self.positions = self.mt5.get_positions()
         
