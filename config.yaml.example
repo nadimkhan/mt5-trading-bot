@@ -1,0 +1,52 @@
+# MT5 Trading Bot Configuration
+
+# AI Provider Settings
+ai:
+  provider: "minimax"  # Options: claude, openai, minimax, groq
+  api_key: "your-api-key-here"
+  model: ""  # Optional: override default model
+  max_tokens: 1000
+  temperature: 0.7
+
+# MT5 Connection
+mt5:
+  login: 57452518479
+  password: ""  # Leave empty if no password needed for demo
+  server: "GTCGlobalTrade-Demo"
+  path: "D:/Program Files/GTC Global Trade MetaTrader 5/terminal64.exe"
+
+# Trading Settings
+trading:
+  symbols:
+    - "EURUSD"
+    - "GBPUSD"
+    - "XAUUSD"
+    - "USDJPY"
+  max_positions: 5
+  max_lot_size: 0.10
+  default_lot_size: 0.01
+
+# Multi-Timeframe Scalping Settings
+timeframes:
+  trend: "H4"     # Higher timeframe for trend direction
+  entry: "M5"      # Fast timeframe for scalp entries
+  confirm: "M15"   # Confirmation timeframe
+
+# Risk Management
+risk:
+  max_daily_loss_percent: 5.0
+  max_drawdown_percent: 10.0
+  max_risk_per_trade_percent: 2.0
+  min_risk_reward_ratio: 1.5
+
+# Engine Settings  
+engine:
+  scalp_loop_seconds: 5     # How often to check M5 for entry signals
+  trend_loop_seconds: 60     # How often to update H4 trend analysis
+  ai_timeout_seconds: 30     # Max wait for AI response
+  max_retries: 3            # Retry failed AI calls
+  
+# Dashboard
+dashboard:
+  host: "127.0.0.1"
+  port: 5000

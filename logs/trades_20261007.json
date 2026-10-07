@@ -1,0 +1,278 @@
+[
+  {
+    "ticket": 151064975,
+    "trade_id": 1,
+    "symbol": "BRNUSD",
+    "type": "BUY",
+    "volume": 0.01,
+    "entry_price": 100.87,
+    "sl": 85.87,
+    "tp": 120.87,
+    "entry_time": "2026-10-07T15:48:35.202876",
+    "strategy": "AI",
+    "ai_confidence": 85,
+    "ai_reasoning": "",
+    "market_analysis": {
+      "H4": {
+        "timeframe": "H4",
+        "current_price": 100.87,
+        "trend": "BULL_TREND",
+        "rsi": 47.8,
+        "rsi_signal": "NEUTRAL",
+        "macd": {
+          "macd": 0.3031,
+          "signal": 0.1854,
+          "histogram": 0.1177,
+          "trend": "BULLISH"
+        },
+        "bollinger": {
+          "upper": 102.57574,
+          "middle": 100.105,
+          "lower": 97.63426,
+          "width": 4.94149
+        },
+        "atr": 1.31214,
+        "support": 100.16,
+        "resistance": 101.49,
+        "change_1h": {
+          "change": 0.0,
+          "percent": 0.0,
+          "direction": "DOWN"
+        },
+        "change_4h": {
+          "change": 0.64,
+          "percent": 0.64,
+          "direction": "UP"
+        },
+        "overall": "BULLISH",
+        "confidence": 100,
+        "bullish_signals": 3,
+        "bearish_signals": 0,
+        "timestamp": "2026-10-07 15:48:33.079655",
+        "bid": 100.87,
+        "ask": 100.92,
+        "spread": 500.0
+      },
+      "M5": {
+        "timeframe": "M5",
+        "current_price": 100.87,
+        "trend": "BULL_TREND",
+        "rsi": 56.8,
+        "rsi_signal": "BULLISH",
+        "macd": {
+          "macd": 0.17734,
+          "signal": 0.17172,
+          "histogram": 0.00562,
+          "trend": "BULLISH"
+        },
+        "bollinger": {
+          "upper": 101.10491,
+          "middle": 100.5745,
+          "lower": 100.04409,
+          "width": 1.06083
+        },
+        "atr": 0.215,
+        "support": 100.67,
+        "resistance": 100.87,
+        "change_1h": {
+          "change": 0.0,
+          "percent": 0.0,
+          "direction": "DOWN"
+        },
+        "change_4h": {
+          "change": 0.2,
+          "percent": 0.2,
+          "direction": "UP"
+        },
+        "overall": "BULLISH",
+        "confidence": 100,
+        "bullish_signals": 4,
+        "bearish_signals": 0,
+        "timestamp": "2026-10-07 15:48:33.081353",
+        "bid": 100.87,
+        "ask": 100.92,
+        "spread": 500.0
+      },
+      "M15": {
+        "timeframe": "M15",
+        "current_price": 100.87,
+        "trend": "BULL_TREND",
+        "rsi": 66.97,
+        "rsi_signal": "BULLISH",
+        "macd": {
+          "macd": 0.17215,
+          "signal": 0.13025,
+          "histogram": 0.0419,
+          "trend": "BULLISH"
+        },
+        "bollinger": {
+          "upper": 101.00157,
+          "middle": 100.364,
+          "lower": 99.72643,
+          "width": 1.27514
+        },
+        "atr": 0.40357,
+        "support": 100.57,
+        "resistance": 100.87,
+        "change_1h": {
+          "change": 0.0,
+          "percent": 0.0,
+          "direction": "DOWN"
+        },
+        "change_4h": {
+          "change": 0.3,
+          "percent": 0.3,
+          "direction": "UP"
+        },
+        "overall": "BULLISH",
+        "confidence": 100,
+        "bullish_signals": 4,
+        "bearish_signals": 0,
+        "timestamp": "2026-10-07 15:48:33.083065",
+        "bid": 100.87,
+        "ask": 100.92,
+        "spread": 500.0
+      },
+      "trend_direction": "BULLISH",
+      "has_position": false
+    }
+  },
+  {
+    "ticket": 151067033,
+    "trade_id": 2,
+    "symbol": "XAUUSD",
+    "type": "SELL",
+    "volume": 0.01,
+    "entry_price": 4114.46,
+    "sl": 4129.46,
+    "tp": 4089.46,
+    "entry_time": "2026-10-07T15:50:35.936379",
+    "strategy": "AI",
+    "ai_confidence": 75,
+    "ai_reasoning": "",
+    "market_analysis": {
+      "H4": {
+        "timeframe": "H4",
+        "current_price": 4114.46,
+        "trend": "BEAR_TREND",
+        "rsi": 37.23,
+        "rsi_signal": "BEARISH",
+        "macd": {
+          "macd": -13.02481,
+          "signal": -9.79533,
+          "histogram": -3.22948,
+          "trend": "BEARISH"
+        },
+        "bollinger": {
+          "upper": 4193.44553,
+          "middle": 4146.994,
+          "lower": 4100.54247,
+          "width": 92.90306
+        },
+        "atr": 26.72571,
+        "support": 4114.46,
+        "resistance": 4166.58,
+        "change_1h": {
+          "change": 0.0,
+          "percent": 0.0,
+          "direction": "DOWN"
+        },
+        "change_4h": {
+          "change": -41.81,
+          "percent": -1.01,
+          "direction": "DOWN"
+        },
+        "overall": "BEARISH",
+        "confidence": 100,
+        "bullish_signals": 0,
+        "bearish_signals": 4,
+        "timestamp": "2026-10-07 15:50:33.064009",
+        "bid": 4114.46,
+        "ask": 4114.64,
+        "spread": 1800.0
+      },
+      "M5": {
+        "timeframe": "M5",
+        "current_price": 4114.46,
+        "trend": "BEAR_TREND",
+        "rsi": 18.88,
+        "rsi_signal": "OVERSOLD",
+        "macd": {
+          "macd": -3.48615,
+          "signal": -3.34176,
+          "histogram": -0.14439,
+          "trend": "BEARISH"
+        },
+        "bollinger": {
+          "upper": 4125.76141,
+          "middle": 4119.7065,
+          "lower": 4113.65159,
+          "width": 12.10981
+        },
+        "atr": 2.995,
+        "support": 4114.46,
+        "resistance": 4119.78,
+        "change_1h": {
+          "change": 0.0,
+          "percent": 0.0,
+          "direction": "DOWN"
+        },
+        "change_4h": {
+          "change": -2.16,
+          "percent": -0.05,
+          "direction": "DOWN"
+        },
+        "overall": "BEARISH",
+        "confidence": 90,
+        "bullish_signals": 1,
+        "bearish_signals": 3,
+        "timestamp": "2026-10-07 15:50:33.066464",
+        "bid": 4114.46,
+        "ask": 4114.64,
+        "spread": 1800.0
+      },
+      "M15": {
+        "timeframe": "M15",
+        "current_price": 4114.46,
+        "trend": "BEAR_TREND",
+        "rsi": 21.17,
+        "rsi_signal": "OVERSOLD",
+        "macd": {
+          "macd": -7.07452,
+          "signal": -6.62649,
+          "histogram": -0.44803,
+          "trend": "BEARISH"
+        },
+        "bollinger": {
+          "upper": 4140.22302,
+          "middle": 4126.481,
+          "lower": 4112.73898,
+          "width": 27.48403
+        },
+        "atr": 5.66214,
+        "support": 4114.46,
+        "resistance": 4137.22,
+        "change_1h": {
+          "change": 0.0,
+          "percent": 0.0,
+          "direction": "DOWN"
+        },
+        "change_4h": {
+          "change": -5.15,
+          "percent": -0.13,
+          "direction": "DOWN"
+        },
+        "overall": "BEARISH",
+        "confidence": 90,
+        "bullish_signals": 1,
+        "bearish_signals": 3,
+        "timestamp": "2026-10-07 15:50:33.068340",
+        "bid": 4114.46,
+        "ask": 4114.64,
+        "spread": 1800.0
+      },
+      "trend_direction": "BEARISH",
+      "has_position": false
+    }
+  }
+]

@@ -1,0 +1,17 @@
+# Core dependencies
+MetaTrader5>=5.0.45
+numpy>=1.24.0
+PyYAML>=6.0
+
+# Dashboard
+Flask>=3.0.0
+
+# AI Providers (install only what you need)
+# Claude
+anthropic>=0.18.0
+
+# OpenAI
+openai>=1.12.0
+
+# Groq
+requests>=2.31.0

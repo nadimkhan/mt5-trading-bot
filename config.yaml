@@ -1,0 +1,49 @@
+# MT5 Trading Bot Configuration
+
+# AI Provider Settings
+ai:
+  provider: "groq"  # Options: claude, openai, minimax, groq
+  api_key: "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"
+  model: "qwen/qwen3.8-27b"  # Groq free tier model
+  max_tokens: 1000
+  temperature: 0.7
+
+# MT5 Connection
+mt5:
+  login: 57452518479
+  password: ""  # Leave empty if no password needed for demo
+  server: "GTCGlobalTrade-Demo"
+  path: "D:/Program Files/GTC Global Trade MetaTrader 5/terminal64.exe"
+
+# Trading Settings
+trading:
+  max_positions: 5
+  max_lot_size: 0.10
+  default_lot_size: 0.01
+  default_stop_loss_pips: 30
+  default_take_profit_pips: 50
+
+# Scalping Timeframe Settings
+timeframes:
+  trend: "M15"     # M15 - intra-session trend
+  entry: "M5"      # M5 - entry setups with EMA crossover
+  confirm: "M1"    # M1 - precise entry confirmation
+
+# Risk Management
+risk:
+  max_daily_loss_percent: 5.0
+  max_drawdown_percent: 10.0
+  max_risk_per_trade_percent: 2.0
+  min_risk_reward_ratio: 1.5
+
+# Engine Settings for Scalping
+engine:
+  scalp_loop_seconds: 15     # 15 seconds between scalp checks
+  trend_loop_seconds: 60    # 1 minute between M15 trend updates
+  ai_timeout_seconds: 30     # Max wait for AI response
+  max_retries: 3            # Retry failed AI calls
+  
+# Dashboard
+dashboard:
+  host: "127.0.0.1"
+  port: 5000
