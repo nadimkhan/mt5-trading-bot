@@ -12,6 +12,7 @@ from engine.mt5_connector import MT5Connector
 from engine.indicators import analyze_market, detect_market_regime, is_tradeable_regime
 from engine.trade_manager import TradeManager
 from engine.session_filter import SessionFilter
+from engine.correlation_controller import CorrelationController
 from ai.ai_analyzer import AIAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -148,6 +149,9 @@ class TradingEngine:
         
         # Initialize session filter
         self.session_filter = SessionFilter(config)
+        
+        # Initialize correlation controller
+        self.correlation_controller = CorrelationController(config)
 
     def initialize(self):
         """Initialize MT5 and AI connections"""
@@ -502,8 +506,14 @@ class TradingEngine:
             logger.info(f"{symbol}: {regime_check['reason']}")
             return
         
-        # Execute trade
+        # Check correlation filter
         lot_size = decision.get("lot_size", self.config.get("trading", {}).get("default_lot_size", 0.01))
+        corr_check = self.correlation_controller.can_open_position(symbol, self.positions, lot_size)
+        if not corr_check["allowed"]:
+            logger.info(f"{symbol}: {corr_check['reason']}")
+            return
+        
+        # Execute trade
         sl_pips = decision.get("stop_loss_pips", self.config.get("trading", {}).get("default_stop_loss_pips", 30))
         tp_pips = decision.get("take_profit_pips", self.config.get("trading", {}).get("default_take_profit_pips", 50))
         
