@@ -227,7 +227,162 @@ def calculate_ema_cross(prices_closes):
     }
 
 
-def calculate_price_change(prices, periods=1):
+def calculate_adx(highs, lows, closes, period=14):
+    """Calculate ADX (Average Directional Index) - measures trend strength"""
+    if len(highs) < period + 1 or len(lows) < period + 1 or len(closes) < period + 1:
+        return None
+    
+    # Calculate True Range and Directional Movement
+    tr_list = []
+    plus_dm_list = []
+    minus_dm_list = []
+    
+    for i in range(1, len(highs)):
+        high = highs[i]
+        low = lows[i]
+        prev_high = highs[i-1]
+        prev_low = lows[i-1]
+        prev_close = closes[i-1]
+        
+        # True Range
+        tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
+        tr_list.append(tr)
+        
+        # Directional Movement
+        up_move = high - prev_high
+        down_move = prev_low - low
+        
+        if up_move > down_move and up_move > 0:
+            plus_dm_list.append(up_move)
+        else:
+            plus_dm_list.append(0)
+            
+        if down_move > up_move and down_move > 0:
+            minus_dm_list.append(down_move)
+        else:
+            minus_dm_list.append(0)
+    
+    if len(tr_list) < period:
+        return None
+    
+    # Smooth with EMA
+    atr = np.mean(tr_list[-period:])
+    
+    plus_dm_smooth = np.mean(plus_dm_list[-period:])
+    minus_dm_smooth = np.mean(minus_dm_list[-period:])
+    
+    if atr == 0:
+        return None
+    
+    # Calculate DI
+    plus_di = (plus_dm_smooth / atr) * 100
+    minus_di = (minus_dm_smooth / atr) * 100
+    
+    # Calculate DX
+    di_sum = plus_di + minus_di
+    if di_sum == 0:
+        dx = 0
+    else:
+        dx = abs(plus_di - minus_di) / di_sum * 100
+    
+    # ADX is the smoothed DX
+    adx = dx  # Simplified - in production would use Wilder smoothing
+    
+    return {
+        "adx": round(adx, 2),
+        "plus_di": round(plus_di, 2),
+        "minus_di": round(minus_di, 2),
+        "trend_strength": "STRONG" if adx > 25 else "WEAK" if adx < 20 else "MODERATE"
+    }
+
+
+def calculate_atr_percentile(symbol, atr_current, lookback=100):
+    """
+    Calculate ATR percentile - what % of recent ATR is current ATR?
+    High percentile = high volatility, Low = low volatility
+    Used to filter out dead markets
+    """
+    # This would need historical ATR data
+    # Placeholder - returns percentile based on current volatility
+    return 50  # Default to middle
+
+
+def detect_market_regime(prices, highs, lows, closes, adx_period=14, atr_period=14):
+    """
+    Detect market regime: TRENDING, RANGING, or VOLATILE
+    - TRENDING: ADX > 25, clear direction
+    - RANGING: ADX < 20, no clear trend
+    - VOLATILE: ATR is high percentile
+    """
+    adx_data = calculate_adx(highs, lows, closes, adx_period)
+    atr_data = calculate_atr(highs, lows, closes, atr_period)
+    
+    if not adx_data:
+        return {"regime": "UNKNOWN", "reason": "Insufficient data"}
+    
+    adx = adx_data["adx"]
+    plus_di = adx_data["plus_di"]
+    minus_di = adx_data["minus_di"]
+    
+    # Determine regime based on ADX
+    if adx < 20:
+        regime = "RANGING"
+        reason = f"ADX={adx} < 20 - no trend"
+    elif adx < 25:
+        regime = "TRANSITIONAL"
+        reason = f"ADX={adx} < 25 - weak trend"
+    else:
+        regime = "TRENDING"
+        reason = f"ADX={adx} > 25 - strong trend"
+    
+    # Determine direction if trending
+    direction = None
+    if regime == "TRENDING":
+        if plus_di > minus_di:
+            direction = "BULL"
+        else:
+            direction = "BEAR"
+    
+    return {
+        "regime": regime,
+        "direction": direction,
+        "adx": adx,
+        "plus_di": plus_di,
+        "minus_di": minus_di,
+        "atr": atr_data,
+        "reason": reason
+    }
+
+
+def is_tradeable_regime(regime_data, strategy_type="trend"):
+    """
+    Filter if market is tradeable based on regime and strategy type.
+    
+    For TREND strategies: require TRENDING regime
+    For MEAN_REVERSION: require RANGING regime
+    """
+    regime = regime_data.get("regime", "UNKNOWN")
+    adx = regime_data.get("adx", 0)
+    
+    if strategy_type == "trend":
+        # Trend strategies need trending market
+        if regime == "RANGING":
+            return False, "Market is ranging - trend strategies disabled"
+        if regime == "TRANSITIONAL":
+            return False, "Market is transitional - waiting for confirmation"
+        if adx < 25:
+            return False, f"ADX={adx} too weak for trend trading"
+        return True, "Trending market confirmed"
+    
+    elif strategy_type == "mean_reversion":
+        # Mean reversion needs ranging market
+        if regime == "TRENDING":
+            return False, "Market is trending - mean reversion disabled"
+        if adx > 30:
+            return False, f"ADX={adx} too strong for mean reversion"
+        return True, "Ranging market confirmed"
+    
+    return True, "Regime check passed"
     """Calculate price change over periods"""
     if len(prices) < periods + 1:
         return None

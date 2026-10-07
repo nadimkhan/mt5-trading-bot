@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from engine.mt5_connector import MT5Connector
-from engine.indicators import analyze_market
+from engine.indicators import analyze_market, detect_market_regime, is_tradeable_regime
 from engine.trade_manager import TradeManager
 from ai.ai_analyzer import AIAnalyzer
 
@@ -267,6 +267,43 @@ class TradingEngine:
         except Exception as e:
             logger.error(f"Trade management error: {e}")
 
+    def _check_regime_filter(self, symbol, action):
+        """
+        Check if market regime is suitable for trading.
+        Uses ADX to detect trending vs ranging markets.
+        """
+        try:
+            # Get M15 data for regime detection
+            bars = self.mt5.get_ohlcv(symbol, "M15", 50)
+            if not bars or len(bars) < 20:
+                return {"allowed": True, "reason": "Insufficient data for regime check"}
+            
+            closes = [b["close"] for b in bars]
+            highs = [b["high"] for b in bars]
+            lows = [b["low"] for b in bars]
+            
+            # Detect regime
+            regime = detect_market_regime(closes, highs, lows, closes)
+            
+            # Check if tradeable for trend strategy
+            tradeable, reason = is_tradeable_regime(regime, strategy_type="trend")
+            
+            if not tradeable:
+                return {"allowed": False, "reason": reason, "regime": regime}
+            
+            # Also check if direction aligns with our trade
+            if regime["regime"] == "TRENDING":
+                if action == "BUY" and regime["direction"] == "BEAR":
+                    return {"allowed": False, "reason": f"ADX={regime['adx']}: Bear trend, no buys", "regime": regime}
+                if action == "SELL" and regime["direction"] == "BULL":
+                    return {"allowed": False, "reason": f"ADX={regime['adx']}: Bull trend, no sells", "regime": regime}
+            
+            return {"allowed": True, "reason": reason, "regime": regime}
+            
+        except Exception as e:
+            logger.error(f"Regime check failed for {symbol}: {e}")
+            return {"allowed": True, "reason": "Regime check error - allowing trade"}
+
     def _scalp_loop(self):
         """Fast loop - Check M5 for entry signals"""
         # Reset daily stats if new day
@@ -448,9 +485,13 @@ class TradingEngine:
         if any(p["symbol"] == symbol for p in self.positions):
             logger.info(f"{symbol}: Already have position, skipping")
             return
-            
-        # Check spread - removed, spread is broker-defined
-            
+        
+        # Check market regime filter
+        regime_check = self._check_regime_filter(symbol, action)
+        if not regime_check["allowed"]:
+            logger.info(f"{symbol}: {regime_check['reason']}")
+            return
+        
         # Execute trade
         lot_size = decision.get("lot_size", self.config.get("trading", {}).get("default_lot_size", 0.01))
         sl_pips = decision.get("stop_loss_pips", self.config.get("trading", {}).get("default_stop_loss_pips", 30))
