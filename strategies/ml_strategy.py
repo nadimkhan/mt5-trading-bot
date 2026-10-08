@@ -73,28 +73,14 @@ class MLStrategy:
         if len(closes) < max(self.genome.ema_slow, self.genome.rsi_period) + 10:
             return {"signal": "HOLD", "confidence": 0, "reason": "Insufficient data"}
 
-        # Compute indicators on ENTRY timeframe
+        # Compute indicators on ENTRY timeframe (simplified 8-param)
         ema_fast = self._ema(closes, self.genome.ema_fast)
         ema_slow = self._ema(closes, self.genome.ema_slow)
         rsi = self._rsi(closes, self.genome.rsi_period)
         atr = self._atr(highs, lows, closes)
-        # Bollinger Bands
-        bb_upper, bb_middle, bb_lower = self._bollinger_bands(closes, self.genome.bb_period, self.genome.bb_stddev)
-        # MACD
-        macd_line, macd_signal, macd_hist = self._macd(closes, self.genome.macd_fast, self.genome.macd_slow, self.genome.macd_signal)
         # Volume
         volumes = entry_data.get('tick_volumes', entry_data.get('volumes', []))
         vol_sma = self._volume_sma(volumes, 20) if volumes else [None] * len(closes)
-        # Ichimoku Cloud
-        opens = entry_data.get('opens', closes)  # fallback if no opens
-        ich_tenkan, ich_kijun, ich_senkou_a, ich_senkou_b, ich_chikou = self._ichimoku(
-            highs, lows, closes,
-            self.genome.ichimoku_tenkan, self.genome.ichimoku_kijun, self.genome.ichimoku_senkou_b
-        )
-        # Heikin Ashi
-        ha_o, ha_h, ha_l, ha_c = self._heikin_ashi(opens, highs, lows, closes)
-        ha_ema_fast = self._ema(ha_c, self.genome.ha_ema_fast) if ha_c and ha_c[0] is not None else [None] * len(closes)
-        ha_ema_slow = self._ema(ha_c, self.genome.ha_ema_slow) if ha_c and ha_c[0] is not None else [None] * len(closes)
 
         i = len(closes) - 1
         if i < 1 or ema_fast[i] is None or ema_slow[i] is None or rsi[i] is None or atr[i] is None:
@@ -104,11 +90,8 @@ class MLStrategy:
         current_rsi = rsi[i]
         current_atr = atr[i]
 
-        # Check trend: EMA fast above slow = bullish, below = bearish
-        trend = "BULL" if ema_fast[i] > ema_slow[i] else "BEAR"
-
         # ATR floor check (don't trade dead markets)
-        if current_atr < 0.0001:  # very low ATR
+        if current_atr < 0.0001:
             return {"signal": "HOLD", "confidence": 0, "reason": "Low volatility"}
 
         # Volume filter
@@ -126,80 +109,20 @@ class MLStrategy:
             return {"signal": "HOLD", "confidence": 0,
                     "reason": f"RSI oversold ({current_rsi:.1f} <= {self.genome.rsi_oversold})"}
 
-        # Check for entry signals
-        long_signal = False
-        short_signal = False
-        signal_reasons = []
+        # ENTRY: EMA crossover (only signal)
+        if ema_fast[i-1] is None or ema_slow[i-1] is None:
+            return {"signal": "HOLD", "confidence": 0, "reason": "EMA not ready"}
+        bullish_ema = (ema_fast[i-1] <= ema_slow[i-1] and ema_fast[i] > ema_slow[i])
+        bearish_ema = (ema_fast[i-1] >= ema_slow[i-1] and ema_fast[i] < ema_slow[i])
 
-        # 1. EMA cross + MACD cross
-        if self.genome.use_ema_cross and self.genome.use_macd_cross:
-            if (ema_fast[i-1] <= ema_slow[i-1] and ema_fast[i] > ema_slow[i]
-                and macd_line[i-1] <= macd_signal[i-1] and macd_line[i] > macd_signal[i]
-                and trend == "BULL"):
-                long_signal = True
-                signal_reasons.append(f"EMA{self.genome.ema_fast}/{self.genome.ema_slow}+MACD")
-            elif (ema_fast[i-1] >= ema_slow[i-1] and ema_fast[i] < ema_slow[i]
-                  and macd_line[i-1] >= macd_signal[i-1] and macd_line[i] < macd_signal[i]
-                  and trend == "BEAR"):
-                short_signal = True
-                signal_reasons.append(f"EMA{self.genome.ema_fast}/{self.genome.ema_slow}+MACD")
-        # 2. EMA cross only
-        elif self.genome.use_ema_cross:
-            if ema_fast[i-1] <= ema_slow[i-1] and ema_fast[i] > ema_slow[i] and trend == "BULL":
-                long_signal = True
-                signal_reasons.append("EMA-cross")
-            elif ema_fast[i-1] >= ema_slow[i-1] and ema_fast[i] < ema_slow[i] and trend == "BEAR":
-                short_signal = True
-                signal_reasons.append("EMA-cross")
-        # 3. MACD cross only
-        elif self.genome.use_macd_cross:
-            if macd_line[i-1] <= macd_signal[i-1] and macd_line[i] > macd_signal[i] and macd_line[i] > 0:
-                long_signal = True
-                signal_reasons.append("MACD-cross")
-            elif macd_line[i-1] >= macd_signal[i-1] and macd_line[i] < macd_signal[i] and macd_line[i] < 0:
-                short_signal = True
-                signal_reasons.append("MACD-cross")
-        # 4. Bollinger band bounce (mean reversion)
-        elif self.genome.use_bb_bounce:
-            if current_price <= bb_lower[i] and current_rsi < 35:
-                long_signal = True
-                signal_reasons.append("BB-bounce")
-            elif current_price >= bb_upper[i] and current_rsi > 65:
-                short_signal = True
-                signal_reasons.append("BB-bounce")
-        # 5. Ichimoku cloud breakout
-        elif self.genome.use_ichimoku_breakout and vol_ok:
-            if (ich_tenkan[i] is not None and ich_kijun[i] is not None
-                and ich_senkou_a[i] is not None and ich_senkou_b[i] is not None):
-                cloud_top = max(ich_senkou_a[i], ich_senkou_b[i])
-                cloud_bottom = min(ich_senkou_a[i], ich_senkou_b[i])
-                if (ich_tenkan[i] > ich_kijun[i] and current_price > cloud_top
-                    and current_price > ich_tenkan[i]):
-                    long_signal = True
-                    signal_reasons.append("ICH-breakout")
-                elif (ich_tenkan[i] < ich_kijun[i] and current_price < cloud_bottom
-                      and current_price < ich_tenkan[i]):
-                    short_signal = True
-                    signal_reasons.append("ICH-breakout")
-        # 6. Heikin Ashi trend
-        elif self.genome.use_heikin_ashi and vol_ok and i > 0:
-            if (ha_ema_fast[i] is not None and ha_ema_slow[i] is not None
-                and ha_ema_fast[i-1] is not None and ha_ema_slow[i-1] is not None):
-                if ha_ema_fast[i-1] <= ha_ema_slow[i-1] and ha_ema_fast[i] > ha_ema_slow[i]:
-                    long_signal = True
-                    signal_reasons.append("HA-cross")
-                elif ha_ema_fast[i-1] >= ha_ema_slow[i-1] and ha_ema_fast[i] < ha_ema_slow[i]:
-                    short_signal = True
-                    signal_reasons.append("HA-cross")
-
-        if long_signal:
+        if bullish_ema and vol_ok:
             sl = current_price - current_atr * self.genome.atr_sl_multiplier
             tp = current_price + current_atr * self.genome.atr_tp_multiplier
             confidence = min(95, 60 + int(self.genome.profit_factor * 10))
             return {
                 "signal": "BUY",
                 "confidence": confidence,
-                "reason": f"ML({','.join(signal_reasons)}): PF={self.genome.profit_factor:.2f}, RSI={current_rsi:.1f}",
+                "reason": f"ML(EMA{self.genome.ema_fast}/{self.genome.ema_slow}): PF={self.genome.profit_factor:.2f}, RSI={current_rsi:.1f}",
                 "entry_zone": current_price,
                 "stop_loss": sl,
                 "take_profit": tp,
@@ -213,6 +136,19 @@ class MLStrategy:
                 "signal": "SELL",
                 "confidence": confidence,
                 "reason": f"ML({','.join(signal_reasons)}): PF={self.genome.profit_factor:.2f}, RSI={current_rsi:.1f}",
+                "entry_zone": current_price,
+                "stop_loss": sl,
+                "take_profit": tp,
+                "ml_genome": self.genome.id
+            }
+        elif bearish_ema and vol_ok:
+            sl = current_price + current_atr * self.genome.atr_sl_multiplier
+            tp = current_price - current_atr * self.genome.atr_tp_multiplier
+            confidence = min(95, 60 + int(self.genome.profit_factor * 10))
+            return {
+                "signal": "SELL",
+                "confidence": confidence,
+                "reason": f"ML(EMA{self.genome.ema_fast}/{self.genome.ema_slow}): PF={self.genome.profit_factor:.2f}, RSI={current_rsi:.1f}",
                 "entry_zone": current_price,
                 "stop_loss": sl,
                 "take_profit": tp,

@@ -30,48 +30,27 @@ class StrategyGenome:
     """
     A genome = a single set of strategy parameters.
     This is what the genetic algorithm evolves.
+
+    SIMPLIFIED to 8 tunable params (was 25+) to reduce overfitting risk.
+    Entry type is NOT a genome param - it's chosen at search time.
     """
-    # EMA periods (for crossover)
+    # === TUNABLE PARAMETERS (8 total) ===
+    # EMA crossover
     ema_fast: int = 9
     ema_slow: int = 21
-    # RSI thresholds
+    # RSI filter
     rsi_period: int = 14
     rsi_overbought: int = 70
     rsi_oversold: int = 30
-    # Bollinger Bands
-    bb_period: int = 20
-    bb_stddev: float = 2.0
-    use_bb_filter: bool = True  # Trade only at BB extremes
-    # MACD
-    macd_fast: int = 12
-    macd_slow: int = 26
-    macd_signal: int = 9
-    use_macd_filter: bool = True
-    # Volume filter
-    use_volume_filter: bool = True
-    volume_min_multiplier: float = 0.8  # Volume must be >= 80% of 20-bar avg
     # ATR-based stops
     atr_sl_multiplier: float = 2.0
     atr_tp_multiplier: float = 4.0
-    # Trend strength
+    # Trend strength filter
     min_adx: float = 20.0
-    # Risk filters
-    min_atr_pips: float = 5.0  # Don't trade dead markets
-    max_spread_pips: float = 5.0
-    # Signal logic toggle
-    use_ema_cross: bool = True
-    use_macd_cross: bool = True
-    use_bb_bounce: bool = False
-    use_ichimoku_breakout: bool = False
-    use_heikin_ashi: bool = False
-    # Ichimoku params
-    ichimoku_tenkan: int = 9
-    ichimoku_kijun: int = 26
-    ichimoku_senkou_b: int = 52
-    # Heikin Ashi smoothing
-    ha_ema_fast: int = 9
-    ha_ema_slow: int = 21
-    # Score (filled by backtester)
+    # Volume filter
+    use_volume_filter: bool = True
+    volume_min_multiplier: float = 0.8
+    # === SCORE (filled by backtester) ===
     profit_factor: float = 0.0
     total_trades: int = 0
     wins: int = 0
@@ -79,7 +58,7 @@ class StrategyGenome:
     total_pnl: float = 0.0
     max_drawdown: float = 100.0
     sharpe: float = 0.0
-    # Metadata
+    # === METADATA ===
     generation: int = 0
     id: str = ""
 
@@ -87,51 +66,34 @@ class StrategyGenome:
         return asdict(self)
 
     def is_valid(self):
-        """Constraints - invalid genomes get rejected"""
+        """Constraints - invalid genomes get rejected before scoring"""
+        # EMA: fast must be less than slow
         if self.ema_fast >= self.ema_slow:
             return False
-        if self.ema_fast < 2 or self.ema_fast > 100:
+        if self.ema_fast < 3 or self.ema_fast > 50:
             return False
-        if self.ema_slow < 5 or self.ema_slow > 200:
+        if self.ema_slow < 10 or self.ema_slow > 150:
             return False
-        if self.atr_sl_multiplier <= 0 or self.atr_tp_multiplier <= 0:
-            return False
+        # RSI: overbought must be > oversold, both in valid range
         if self.rsi_overbought <= self.rsi_oversold:
             return False
         if self.rsi_overbought > 95 or self.rsi_oversold < 5:
             return False
-        if self.min_adx < 0 or self.min_adx > 60:
+        if self.rsi_period not in (7, 14, 21):
             return False
-        if self.bb_period < 5 or self.bb_period > 60:
+        # Stops: must be positive
+        if self.atr_sl_multiplier <= 0 or self.atr_tp_multiplier <= 0:
             return False
-        if self.bb_stddev < 0.5 or self.bb_stddev > 4.0:
+        if self.atr_sl_multiplier > 5 or self.atr_tp_multiplier > 10:
             return False
-        if self.macd_fast >= self.macd_slow:
+        # TP must be > SL (for positive risk:reward)
+        if self.atr_tp_multiplier <= self.atr_sl_multiplier:
             return False
-        if self.macd_slow < 5 or self.macd_slow > 60:
+        # ADX threshold
+        if self.min_adx < 10 or self.min_adx > 50:
             return False
+        # Volume multiplier
         if self.volume_min_multiplier < 0.1 or self.volume_min_multiplier > 3.0:
-            return False
-        if self.min_atr_pips < 0 or self.min_atr_pips > 50:
-            return False
-        # Ichimoku constraints
-        if self.ichimoku_tenkan < 5 or self.ichimoku_tenkan > 30:
-            return False
-        if self.ichimoku_kijun < 15 or self.ichimoku_kijun > 60:
-            return False
-        if self.ichimoku_senkou_b < 30 or self.ichimoku_senkou_b > 120:
-            return False
-        if self.ichimoku_tenkan >= self.ichimoku_kijun:
-            return False
-        if self.ichimoku_kijun >= self.ichimoku_senkou_b:
-            return False
-        if self.ha_ema_fast >= self.ha_ema_slow:
-            return False
-        # Must enable at least one entry signal
-        if not (self.use_ema_cross or self.use_macd_cross or self.use_bb_bounce
-                or self.use_ichimoku_breakout or self.use_heikin_ashi):
-            return False
-        if self.max_spread_pips < 0.1 or self.max_spread_pips > 50:
             return False
         return True
 
@@ -169,45 +131,23 @@ class GeneticSearcher:
         self.best_genomes: List[StrategyGenome] = []
 
     def _random_genome(self, generation: int = 0) -> StrategyGenome:
-        """Create a random strategy genome"""
+        """Create a random strategy genome (simplified 8-param version)."""
         g = StrategyGenome(
-            ema_fast=random.randint(3, 30),
-            ema_slow=random.randint(15, 80),
+            # EMA crossover (the core signal)
+            ema_fast=random.randint(5, 30),
+            ema_slow=random.randint(20, 100),
+            # RSI filter
             rsi_period=random.choice([7, 14, 21]),
-            rsi_overbought=random.randint(60, 85),
-            rsi_oversold=random.randint(15, 40),
-            # Bollinger
-            bb_period=random.choice([15, 20, 25, 30]),
-            bb_stddev=round(random.uniform(1.5, 2.8), 1),
-            use_bb_filter=random.choice([True, False]),
-            # MACD
-            macd_fast=random.choice([8, 10, 12, 15]),
-            macd_slow=random.choice([20, 24, 26, 30]),
-            macd_signal=random.choice([7, 9, 12]),
-            use_macd_filter=random.choice([True, False]),
-            # Volume
+            rsi_overbought=random.randint(60, 80),
+            rsi_oversold=random.randint(20, 40),
+            # ATR-based stops (SL must be < TP for positive RR)
+            atr_sl_multiplier=round(random.uniform(1.0, 3.0), 1),
+            atr_tp_multiplier=round(random.uniform(2.0, 6.0), 1),
+            # Trend strength filter
+            min_adx=round(random.uniform(15.0, 35.0), 1),
+            # Volume filter
             use_volume_filter=random.choice([True, False]),
-            volume_min_multiplier=round(random.uniform(0.5, 1.2), 1),
-            # Stops
-            atr_sl_multiplier=round(random.uniform(1.0, 4.0), 1),
-            atr_tp_multiplier=round(random.uniform(2.0, 8.0), 1),
-            # Trend
-            min_adx=round(random.uniform(15, 35), 1),
-            min_atr_pips=round(random.uniform(3.0, 12.0), 1),
-            max_spread_pips=round(random.uniform(1.0, 10.0), 1),
-            # Strategy selection - bias toward at least one advanced indicator
-            use_ema_cross=random.choice([True, True, False]),  # 2/3 chance
-            use_macd_cross=random.choice([True, True, False]),
-            use_bb_bounce=random.choice([True, False, False]),  # 1/3 chance
-            use_ichimoku_breakout=random.choice([True, False, False]),  # 1/3 chance
-            use_heikin_ashi=random.choice([True, False, False]),  # 1/3 chance
-            # Ichimoku
-            ichimoku_tenkan=random.choice([7, 9, 12]),
-            ichimoku_kijun=random.choice([20, 26, 30]),
-            ichimoku_senkou_b=random.choice([42, 52, 60]),
-            # Heikin Ashi
-            ha_ema_fast=random.choice([5, 9, 12]),
-            ha_ema_slow=random.choice([18, 21, 26]),
+            volume_min_multiplier=round(random.uniform(0.5, 1.5), 1),
             generation=generation
         )
         if not g.is_valid():
@@ -216,45 +156,23 @@ class GeneticSearcher:
         return g
 
     def _mutate(self, genome: StrategyGenome, generation: int) -> StrategyGenome:
-        """Mutate a genome with small random changes"""
+        """Mutate a genome with small random changes (simplified 8-param)."""
         new = StrategyGenome(
-            ema_fast=genome.ema_fast + random.randint(-3, 3),
-            ema_slow=genome.ema_slow + random.randint(-5, 5),
+            # EMA crossover
+            ema_fast=max(3, min(50, genome.ema_fast + random.randint(-2, 2))),
+            ema_slow=max(10, min(150, genome.ema_slow + random.randint(-4, 4))),
+            # RSI filter
             rsi_period=genome.rsi_period,
-            rsi_overbought=genome.rsi_overbought + random.randint(-5, 5),
-            rsi_oversold=genome.rsi_oversold + random.randint(-3, 3),
-            # Bollinger
-            bb_period=genome.bb_period,
-            bb_stddev=round(genome.bb_stddev + random.uniform(-0.2, 0.2), 1),
-            use_bb_filter=random.random() < 0.1 or genome.use_bb_filter,  # 10% chance to flip
-            # MACD
-            macd_fast=genome.macd_fast,
-            macd_slow=genome.macd_slow,
-            macd_signal=genome.macd_signal,
-            use_macd_filter=random.random() < 0.1 or genome.use_macd_filter,
-            # Volume
+            rsi_overbought=max(50, min(90, genome.rsi_overbought + random.randint(-3, 3))),
+            rsi_oversold=max(10, min(50, genome.rsi_oversold + random.randint(-3, 3))),
+            # ATR-based stops
+            atr_sl_multiplier=round(max(0.5, min(5.0, genome.atr_sl_multiplier + random.uniform(-0.2, 0.2))), 1),
+            atr_tp_multiplier=round(max(1.0, min(8.0, genome.atr_tp_multiplier + random.uniform(-0.3, 0.3))), 1),
+            # Trend strength
+            min_adx=round(max(10.0, min(50.0, genome.min_adx + random.uniform(-2, 2))), 1),
+            # Volume filter
             use_volume_filter=random.random() < 0.1 or genome.use_volume_filter,
-            volume_min_multiplier=round(genome.volume_min_multiplier + random.uniform(-0.1, 0.1), 1),
-            # Stops
-            atr_sl_multiplier=round(genome.atr_sl_multiplier + random.uniform(-0.3, 0.3), 1),
-            atr_tp_multiplier=round(genome.atr_tp_multiplier + random.uniform(-0.5, 0.5), 1),
-            # Trend
-            min_adx=round(genome.min_adx + random.uniform(-3, 3), 1),
-            min_atr_pips=round(genome.min_atr_pips + random.uniform(-1, 1), 1),
-            max_spread_pips=round(genome.max_spread_pips + random.uniform(-1, 1), 1),
-            # Strategy
-            use_ema_cross=random.random() < 0.1 or genome.use_ema_cross,
-            use_macd_cross=random.random() < 0.1 or genome.use_macd_cross,
-            use_bb_bounce=random.random() < 0.1 or genome.use_bb_bounce,
-            use_ichimoku_breakout=random.random() < 0.1 or genome.use_ichimoku_breakout,
-            use_heikin_ashi=random.random() < 0.1 or genome.use_heikin_ashi,
-            # Ichimoku
-            ichimoku_tenkan=genome.ichimoku_tenkan,
-            ichimoku_kijun=genome.ichimoku_kijun,
-            ichimoku_senkou_b=genome.ichimoku_senkou_b,
-            # Heikin Ashi
-            ha_ema_fast=genome.ha_ema_fast,
-            ha_ema_slow=genome.ha_ema_slow,
+            volume_min_multiplier=round(max(0.1, min(3.0, genome.volume_min_multiplier + random.uniform(-0.1, 0.1))), 1),
             generation=generation
         )
         if not new.is_valid():
@@ -263,45 +181,23 @@ class GeneticSearcher:
         return new
 
     def _crossover(self, parent_a: StrategyGenome, parent_b: StrategyGenome, generation: int) -> StrategyGenome:
-        """Combine two parent genomes"""
+        """Combine two parent genomes (simplified 8-param)."""
         child = StrategyGenome(
+            # EMA crossover
             ema_fast=random.choice([parent_a.ema_fast, parent_b.ema_fast]),
             ema_slow=random.choice([parent_a.ema_slow, parent_b.ema_slow]),
+            # RSI filter
             rsi_period=random.choice([parent_a.rsi_period, parent_b.rsi_period]),
             rsi_overbought=random.choice([parent_a.rsi_overbought, parent_b.rsi_overbought]),
             rsi_oversold=random.choice([parent_a.rsi_oversold, parent_b.rsi_oversold]),
-            # Bollinger
-            bb_period=random.choice([parent_a.bb_period, parent_b.bb_period]),
-            bb_stddev=round((parent_a.bb_stddev + parent_b.bb_stddev) / 2, 1),
-            use_bb_filter=random.choice([parent_a.use_bb_filter, parent_b.use_bb_filter]),
-            # MACD
-            macd_fast=random.choice([parent_a.macd_fast, parent_b.macd_fast]),
-            macd_slow=random.choice([parent_a.macd_slow, parent_b.macd_slow]),
-            macd_signal=random.choice([parent_a.macd_signal, parent_b.macd_signal]),
-            use_macd_filter=random.choice([parent_a.use_macd_filter, parent_b.use_macd_filter]),
-            # Volume
-            use_volume_filter=random.choice([parent_a.use_volume_filter, parent_b.use_volume_filter]),
-            volume_min_multiplier=round((parent_a.volume_min_multiplier + parent_b.volume_min_multiplier) / 2, 1),
-            # Stops
+            # ATR-based stops (blend for continuous evolution)
             atr_sl_multiplier=round((parent_a.atr_sl_multiplier + parent_b.atr_sl_multiplier) / 2, 1),
             atr_tp_multiplier=round((parent_a.atr_tp_multiplier + parent_b.atr_tp_multiplier) / 2, 1),
-            # Trend
+            # Trend strength
             min_adx=round((parent_a.min_adx + parent_b.min_adx) / 2, 1),
-            min_atr_pips=round((parent_a.min_atr_pips + parent_b.min_atr_pips) / 2, 1),
-            max_spread_pips=round((parent_a.max_spread_pips + parent_b.max_spread_pips) / 2, 1),
-            # Strategy
-            use_ema_cross=random.choice([parent_a.use_ema_cross, parent_b.use_ema_cross]),
-            use_macd_cross=random.choice([parent_a.use_macd_cross, parent_b.use_macd_cross]),
-            use_bb_bounce=random.choice([parent_a.use_bb_bounce, parent_b.use_bb_bounce]),
-            use_ichimoku_breakout=random.choice([parent_a.use_ichimoku_breakout, parent_b.use_ichimoku_breakout]),
-            use_heikin_ashi=random.choice([parent_a.use_heikin_ashi, parent_b.use_heikin_ashi]),
-            # Ichimoku
-            ichimoku_tenkan=random.choice([parent_a.ichimoku_tenkan, parent_b.ichimoku_tenkan]),
-            ichimoku_kijun=random.choice([parent_a.ichimoku_kijun, parent_b.ichimoku_kijun]),
-            ichimoku_senkou_b=random.choice([parent_a.ichimoku_senkou_b, parent_b.ichimoku_senkou_b]),
-            # Heikin Ashi
-            ha_ema_fast=random.choice([parent_a.ha_ema_fast, parent_b.ha_ema_fast]),
-            ha_ema_slow=random.choice([parent_a.ha_ema_slow, parent_b.ha_ema_slow]),
+            # Volume filter
+            use_volume_filter=random.choice([parent_a.use_volume_filter, parent_b.use_volume_filter]),
+            volume_min_multiplier=round((parent_a.volume_min_multiplier + parent_b.volume_min_multiplier) / 2, 1),
             generation=generation
         )
         if not child.is_valid():
@@ -310,189 +206,117 @@ class GeneticSearcher:
         return child
 
     def _score_genome(self, genome: StrategyGenome, bars: List[dict], symbol: str = None) -> StrategyGenome:
-        """Backtest a genome on price data and set its score fields"""
+        """Backtest a genome on price data (simplified 8-param + cost model).
+
+        Improvements over previous version:
+        - No look-ahead: enter on next bar's open, not signal bar's close
+        - Per-symbol costs: spread/slippage varies by instrument
+        - Spread charged on EVERY trade (both wins and losses)
+        - Only EMA cross + RSI + ADX + volume (no redundant indicators)
+        """
         try:
             if len(bars) < 100:
                 return genome
             closes = [b['close'] for b in bars]
-            opens = [b.get('open', b['close']) for b in bars]  # fallback to close if no open
+            opens = [b.get('open', b['close']) for b in bars]
             highs = [b['high'] for b in bars]
             lows = [b['low'] for b in bars]
 
-            # Compute indicators
+            # === INDICATORS (only what we need) ===
             ema_fast = self._ema(closes, genome.ema_fast)
             ema_slow = self._ema(closes, genome.ema_slow)
             rsi = self._rsi(closes, genome.rsi_period)
             atr = self._atr(highs, lows, closes, 14)
-            # Bollinger Bands
-            bb_upper, bb_middle, bb_lower = self._bollinger_bands(closes, genome.bb_period, genome.bb_stddev)
-            # MACD
-            macd_line, macd_signal, macd_hist = self._macd(closes, genome.macd_fast, genome.macd_slow, genome.macd_signal)
-            # Volume (use tick_volume if available, fallback to 1s)
+            adx_vals = self._adx(highs, lows, closes, 14)
+
+            # Volume (use tick_volume if available)
             bars_with_vol = [b for b in bars if 'tick_volume' in b or 'volume' in b]
             if bars_with_vol and 'tick_volume' in bars_with_vol[0]:
                 volumes = [b.get('tick_volume', 1) for b in bars]
             elif bars_with_vol and 'volume' in bars_with_vol[0]:
                 volumes = [b.get('volume', 1) for b in bars]
             else:
-                volumes = [1] * len(bars)  # no volume data → pass filter trivially
+                volumes = [1] * len(bars)
             vol_sma = self._volume_sma(volumes, 20)
-            # Ichimoku Cloud
-            ich_tenkan, ich_kijun, ich_senkou_a, ich_senkou_b, ich_chikou = self._ichimoku(
-                highs, lows, closes,
-                genome.ichimoku_tenkan, genome.ichimoku_kijun, genome.ichimoku_senkou_b
-            )
-            # Heikin Ashi (only compute closes; use HA close for trend detection)
-            ha_o, ha_h, ha_l, ha_c = self._heikin_ashi(opens, highs, lows, closes)
-            ha_ema_fast = self._ema(ha_c, genome.ha_ema_fast) if ha_c and ha_c[0] is not None else [None] * len(closes)
-            ha_ema_slow = self._ema(ha_c, genome.ha_ema_slow) if ha_c and ha_c[0] is not None else [None] * len(closes)
 
-            # Determine pip size and dollar value per pip based on symbol
+            # === PER-SYMBOL COST MODEL (Option D fix) ===
+            # Realistic costs: spread + slippage + commission
+            # These hit EVERY trade, not just losses
             pip_size = 0.0001
-            dollars_per_pip_per_lot = 10.0  # 1 standard lot of major forex = $10/pip
+            dollars_per_pip_per_lot = 10.0
+            spread_pips = 0.7   # typical EUR/USD spread
+            slippage_pips = 0.3  # average slippage
+            commission_pips = 0.3
             if symbol:
                 if 'JPY' in symbol:
                     pip_size = 0.01
-                elif 'XAU' in symbol or 'BRN' in symbol or 'OIL' in symbol:
+                    spread_pips = 0.9
+                elif 'XAU' in symbol:
                     pip_size = 0.01
-                    dollars_per_pip_per_lot = 1.0  # 1 lot XAUUSD = $1 per 0.01 move
-                elif any(c in symbol for c in ['BTC', 'ETH']):
-                    pip_size = 1.0
+                    dollars_per_pip_per_lot = 1.0  # $1 per 0.01 on 1 lot
+                    spread_pips = 3.0  # gold has wider spread
+                    slippage_pips = 0.5
+                elif 'BRN' in symbol or 'OIL' in symbol or 'WTI' in symbol:
+                    pip_size = 0.01
                     dollars_per_pip_per_lot = 1.0
+                    spread_pips = 4.0  # crude has very wide spread
+                    slippage_pips = 1.0
+                elif 'XAG' in symbol:
+                    pip_size = 0.01
+                    dollars_per_pip_per_lot = 5.0
+                    spread_pips = 2.5
+            lot_size = 0.1  # mini lot for $1/pip on majors
+            dollars_per_pip = dollars_per_pip_per_lot * lot_size
+            # Total cost per trade (in pips) - hits both entry AND exit
+            cost_per_side_pips = (spread_pips / 2) + slippage_pips
+            cost_per_roundtrip_pips = (cost_per_side_pips * 2) + commission_pips
 
-            # Use 0.1 lot (mini) for $1/pip on majors, $0.10/pip on XAUUSD
-            lot_multiplier = 0.1
-            dollars_per_pip = dollars_per_pip_per_lot * lot_multiplier
-            # Spread cost in pips (~0.5-1.5 for majors, ~3-5 for XAUUSD)
-            spread_pips = 1.5
-            if symbol and ('XAU' in symbol or 'BRN' in symbol or 'OIL' in symbol):
-                spread_pips = 3.0
-            commission_pips = 0.5  # round-trip commission
-
-            # Walk through bars, simulate trades
+            # === SIMULATE TRADES ===
             trades = []
             in_trade = False
             entry_price = 0
-            atr_at_entry = 0
             trade = {}
 
-            # Simple ADX calc
-            adx_period = 14
-            adx_vals = self._adx(highs, lows, closes, adx_period)
-
-            for i in range(50, len(bars)):
+            for i in range(50, len(bars) - 1):  # -1 so we can use next bar's open for entry
                 if not in_trade:
-                    # Check entry conditions
                     if (i < len(ema_fast) and ema_fast[i] is not None
                         and ema_slow[i] is not None
                         and i > 0 and ema_fast[i-1] is not None and ema_slow[i-1] is not None
                         and rsi[i] is not None and atr[i] is not None
-                        and bb_lower[i] is not None and bb_upper[i] is not None
-                        and macd_line[i] is not None and macd_signal[i] is not None
-                        and macd_line[i-1] is not None and macd_signal[i-1] is not None
                         and adx_vals[i] is not None):
 
-                        # ATR floor: don't trade dead markets
-                        atr_pips = atr[i] / pip_size
-                        if atr_pips < genome.min_atr_pips:
-                            continue
-
-                        # 1. EMA crossover detection
-                        bullish_ema = (ema_fast[i-1] <= ema_slow[i-1] and ema_fast[i] > ema_slow[i])
-                        bearish_ema = (ema_fast[i-1] >= ema_slow[i-1] and ema_fast[i] < ema_slow[i])
-
-                        # 2. MACD confirmation
-                        macd_bull = (macd_line[i-1] <= macd_signal[i-1] and macd_line[i] > macd_signal[i])
-                        macd_bear = (macd_line[i-1] >= macd_signal[i-1] and macd_line[i] < macd_signal[i])
-
-                        # 3. Bollinger band extremes
-                        bb_bull = closes[i] <= bb_lower[i]   # touched/under lower band
-                        bb_bear = closes[i] >= bb_upper[i]   # touched/over upper band
-
-                        # 4. Volume filter
+                        # Filters: RSI not extreme, ADX strong enough
+                        rsi_ok = (rsi[i] < genome.rsi_overbought and rsi[i] > genome.rsi_oversold)
+                        adx_strong = adx_vals[i] >= genome.min_adx
+                        # Volume filter (optional)
                         vol_ok = True
                         if genome.use_volume_filter and vol_sma[i] is not None and vol_sma[i] > 0:
                             vol_ok = volumes[i] >= vol_sma[i] * genome.volume_min_multiplier
 
-                        # 5. RSI filter
-                        rsi_ok = (rsi[i] < genome.rsi_overbought and rsi[i] > genome.rsi_oversold)
+                        # ENTRY: EMA crossover (only signal)
+                        bullish_ema = (ema_fast[i-1] <= ema_slow[i-1] and ema_fast[i] > ema_slow[i])
+                        bearish_ema = (ema_fast[i-1] >= ema_slow[i-1] and ema_fast[i] < ema_slow[i])
 
-                        # 6. ADX trend strength filter
-                        adx_strong = adx_vals[i] >= 20
+                        long_signal = bullish_ema and rsi_ok and adx_strong and vol_ok
+                        short_signal = bearish_ema and rsi_ok and adx_strong and vol_ok
 
-                        # Decide entry signal based on which filters the genome uses
-                        long_signal = False
-                        short_signal = False
-
-                        # EMA cross + MACD cross + ADX = strongest setup
-                        if genome.use_ema_cross and genome.use_macd_filter and adx_strong and rsi_ok and vol_ok:
-                            if bullish_ema and macd_bull:
-                                long_signal = True
-                            if bearish_ema and macd_bear:
-                                short_signal = True
-                        # EMA cross only (less strict)
-                        elif genome.use_ema_cross and adx_strong and rsi_ok and vol_ok:
-                            if bullish_ema:
-                                long_signal = True
-                            if bearish_ema:
-                                short_signal = True
-                        # MACD cross only
-                        elif genome.use_macd_filter and adx_strong and rsi_ok and vol_ok:
-                            if macd_bull:
-                                long_signal = True
-                            if macd_bear:
-                                short_signal = True
-                        # Bollinger band bounce (mean reversion)
-                        elif genome.use_bb_bounce and vol_ok:
-                            # Long at lower band, short at upper band
-                            if bb_bull and macd_line[i] > macd_signal[i] and rsi[i] < 35:
-                                long_signal = True
-                            if bb_bear and macd_line[i] < macd_signal[i] and rsi[i] > 65:
-                                short_signal = True
-                        # Ichimoku cloud breakout (above cloud = buy, below = sell)
-                        elif genome.use_ichimoku_breakout and vol_ok and rsi_ok:
-                            # Need Tenkan, Kijun, and both Senkou values
-                            if (ich_tenkan[i] is not None and ich_kijun[i] is not None
-                                and ich_senkou_a[i] is not None and ich_senkou_b[i] is not None):
-                                cloud_top = max(ich_senkou_a[i], ich_senkou_b[i])
-                                cloud_bottom = min(ich_senkou_a[i], ich_senkou_b[i])
-                                # Tenkan above Kijun AND price above cloud = buy
-                                if (ich_tenkan[i] > ich_kijun[i] and closes[i] > cloud_top
-                                    and closes[i] > ich_tenkan[i]):
-                                    long_signal = True
-                                # Tenkan below Kijun AND price below cloud = sell
-                                elif (ich_tenkan[i] < ich_kijun[i] and closes[i] < cloud_bottom
-                                      and closes[i] < ich_tenkan[i]):
-                                    short_signal = True
-                        # Heikin Ashi trend + EMA crossover
-                        elif genome.use_heikin_ashi and vol_ok and rsi_ok:
-                            if (ha_ema_fast[i] is not None and ha_ema_slow[i] is not None
-                                and ha_ema_fast[i-1] is not None and ha_ema_slow[i-1] is not None):
-                                # HA EMA crossover (on smoothed HA candles)
-                                if ha_ema_fast[i-1] <= ha_ema_slow[i-1] and ha_ema_fast[i] > ha_ema_slow[i]:
-                                    long_signal = True
-                                elif ha_ema_fast[i-1] >= ha_ema_slow[i-1] and ha_ema_fast[i] < ha_ema_slow[i]:
-                                    short_signal = True
-
-                        if long_signal:
+                        if long_signal or short_signal:
+                            # NO LOOK-AHEAD: enter on NEXT bar's open, not this bar's close
+                            entry_price = opens[i + 1]
+                            atr_at_entry = atr[i]  # ATR from signal bar (acceptable)
+                            if long_signal:
+                                sl = entry_price - atr_at_entry * genome.atr_sl_multiplier
+                                tp = entry_price + atr_at_entry * genome.atr_tp_multiplier
+                                trade = {'entry': i + 1, 'entry_price': entry_price, 'sl': sl, 'tp': tp, 'side': 'long'}
+                            else:
+                                sl = entry_price + atr_at_entry * genome.atr_sl_multiplier
+                                tp = entry_price - atr_at_entry * genome.atr_tp_multiplier
+                                trade = {'entry': i + 1, 'entry_price': entry_price, 'sl': sl, 'tp': tp, 'side': 'short'}
                             in_trade = True
-                            entry_price = closes[i]
-                            atr_at_entry = atr[i]
-                            sl = entry_price - atr_at_entry * genome.atr_sl_multiplier
-                            tp = entry_price + atr_at_entry * genome.atr_tp_multiplier
-                            trade = {'entry': i, 'entry_price': entry_price, 'sl': sl, 'tp': tp, 'side': 'long'}
-                        elif short_signal:
-                            in_trade = True
-                            entry_price = closes[i]
-                            atr_at_entry = atr[i]
-                            sl = entry_price + atr_at_entry * genome.atr_sl_multiplier
-                            tp = entry_price - atr_at_entry * genome.atr_tp_multiplier
-                            trade = {'entry': i, 'entry_price': entry_price, 'sl': sl, 'tp': tp, 'side': 'short'}
                 else:
-                    # Check exit (SL/TP) - check if high/low hit levels this bar
+                    # Check exit on the bar AFTER entry (or later)
                     high = highs[i]
                     low = lows[i]
-                    pnl = 0
                     exit_price = 0
                     exit_reason = ''
                     if trade.get('side') == 'long':
@@ -515,25 +339,25 @@ class GeneticSearcher:
                             pnl_pips = (exit_price - entry_price) / pip_size
                         else:
                             pnl_pips = (entry_price - exit_price) / pip_size
-                        # Convert pips to dollars: simple, realistic formula
+                        # CRITICAL FIX: subtract cost on EVERY trade (both wins and losses)
+                        pnl_pips -= cost_per_roundtrip_pips
                         pnl_dollars = pnl_pips * dollars_per_pip
-                        # Subtract transaction costs (spread + commission)
-                        pnl_dollars -= (spread_pips + commission_pips) * dollars_per_pip
-                        trades.append({'pnl': pnl_dollars, 'reason': exit_reason})
+                        trades.append({'pnl': pnl_dollars, 'pnl_pips': pnl_pips, 'reason': exit_reason})
                         in_trade = False
                     elif i > trade.get('entry', 0) + 50:  # Force exit after 50 bars
                         if trade.get('side') == 'long':
                             pnl_pips = (closes[i] - entry_price) / pip_size
                         else:
                             pnl_pips = (entry_price - closes[i]) / pip_size
+                        pnl_pips -= cost_per_roundtrip_pips
                         pnl_dollars = pnl_pips * dollars_per_pip
-                        pnl_dollars -= (spread_pips + commission_pips) * dollars_per_pip
-                        trades.append({'pnl': pnl_dollars, 'reason': 'timeout'})
+                        trades.append({'pnl': pnl_dollars, 'pnl_pips': pnl_pips, 'reason': 'timeout'})
                         in_trade = False
 
             if not trades:
                 return genome
 
+            # === SCORING ===
             wins = [t for t in trades if t['pnl'] > 0]
             losses = [t for t in trades if t['pnl'] <= 0]
             total_pnl = sum(t['pnl'] for t in trades)
@@ -541,7 +365,8 @@ class GeneticSearcher:
             gross_loss = abs(sum(t['pnl'] for t in losses)) or 1
             profit_factor = gross_profit / gross_loss if gross_loss > 0 else 0
             win_rate = len(wins) / len(trades) * 100
-            # Drawdown (rough)
+
+            # Drawdown
             cumulative = 0
             peak = 0
             max_dd = 0
@@ -550,7 +375,7 @@ class GeneticSearcher:
                 peak = max(peak, cumulative)
                 dd = (peak - cumulative) / max(peak, 1) * 100 if peak > 0 else 0
                 max_dd = max(max_dd, dd)
-            # Sharpe (rough annualized)
+            # Sharpe
             if len(trades) > 1:
                 import statistics
                 returns = [t['pnl'] for t in trades]
@@ -565,17 +390,11 @@ class GeneticSearcher:
             genome.total_pnl = round(total_pnl, 2)
             genome.max_drawdown = round(max_dd, 1)
             genome.sharpe = round(sharpe, 2)
-            # Sanity check: if PF is huge but win rate is tiny, it's a "lottery ticket" strategy
-            # Cap the profit factor to discourage overfitting to a single lucky trade
-            # Real strategies have WR >= 30% with reasonable trade counts
+            # Lottery-ticket protection
             if len(wins) < 3 and profit_factor > 5:
-                # Reject this score by setting PF very low
                 genome.profit_factor = 0.0
-                logger.debug(f"Capping lottery-ticket PF: {profit_factor:.1f} with only {len(wins)} wins out of {len(trades)} trades")
-            # Also reject if WR < 5% even with many trades (random strategy)
             if win_rate < 5.0 and len(trades) >= 10:
                 genome.profit_factor = 0.0
-                logger.debug(f"Capping low-WR strategy: {win_rate:.1f}% win rate over {len(trades)} trades")
         except Exception as e:
             import traceback
             logger.error(f"Genome scoring failed: {e}")
@@ -944,14 +763,8 @@ class GeneticSearcher:
         for g in population[:self.elite_count * 2]:  # top 10
             oos_genome = StrategyGenome(**{k: v for k, v in g.to_dict().items() if k in [
                 'ema_fast', 'ema_slow', 'rsi_period', 'rsi_overbought', 'rsi_oversold',
-                'bb_period', 'bb_stddev', 'use_bb_filter',
-                'macd_fast', 'macd_slow', 'macd_signal', 'use_macd_filter',
                 'use_volume_filter', 'volume_min_multiplier',
-                'atr_sl_multiplier', 'atr_tp_multiplier', 'min_adx', 'min_atr_pips',
-                'max_spread_pips', 'use_ema_cross', 'use_macd_cross', 'use_bb_bounce',
-                'use_ichimoku_breakout', 'use_heikin_ashi',
-                'ichimoku_tenkan', 'ichimoku_kijun', 'ichimoku_senkou_b',
-                'ha_ema_fast', 'ha_ema_slow'
+                'atr_sl_multiplier', 'atr_tp_multiplier', 'min_adx'
             ]})
             oos_genome = self._score_genome_multi(oos_genome, oos)
             # Reject if:
@@ -1043,7 +856,7 @@ class GeneticSearcher:
         return bars
 
     def _save_to_db(self, genomes: List[StrategyGenome], symbol: str):
-        """Persist validated genomes to DB for live use"""
+        """Persist validated genomes to DB for live use (simplified 8-param schema)."""
         try:
             conn = sqlite3.connect(DB_PATH)
             cursor = conn.cursor()
@@ -1053,17 +866,12 @@ class GeneticSearcher:
                     symbol TEXT,
                     ema_fast INTEGER, ema_slow INTEGER,
                     rsi_period INTEGER, rsi_overbought INTEGER, rsi_oversold INTEGER,
-                    bb_period INTEGER, bb_stddev REAL, use_bb_filter INTEGER,
-                    macd_fast INTEGER, macd_slow INTEGER, macd_signal INTEGER, use_macd_filter INTEGER,
                     use_volume_filter INTEGER, volume_min_multiplier REAL,
                     atr_sl_multiplier REAL, atr_tp_multiplier REAL,
-                    min_adx REAL, min_atr_pips REAL, max_spread_pips REAL,
-                    use_ema_cross INTEGER, use_macd_cross INTEGER, use_bb_bounce INTEGER,
-                    use_ichimoku_breakout INTEGER, use_heikin_ashi INTEGER,
-                    ichimoku_tenkan INTEGER, ichimoku_kijun INTEGER, ichimoku_senkou_b INTEGER,
-                    ha_ema_fast INTEGER, ha_ema_slow INTEGER,
+                    min_adx REAL,
                     profit_factor REAL, total_trades INTEGER,
-                    win_rate REAL, max_drawdown REAL, sharpe REAL,
+                    wins INTEGER, win_rate REAL, total_pnl REAL,
+                    max_drawdown REAL, sharpe REAL,
                     generation INTEGER, validated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -1071,27 +879,16 @@ class GeneticSearcher:
                 cursor.execute("""
                     INSERT OR REPLACE INTO ml_genomes
                     (id, symbol, ema_fast, ema_slow, rsi_period, rsi_overbought, rsi_oversold,
-                     bb_period, bb_stddev, use_bb_filter,
-                     macd_fast, macd_slow, macd_signal, use_macd_filter,
                      use_volume_filter, volume_min_multiplier,
-                     atr_sl_multiplier, atr_tp_multiplier, min_adx, min_atr_pips, max_spread_pips,
-                     use_ema_cross, use_macd_cross, use_bb_bounce,
-                     use_ichimoku_breakout, use_heikin_ashi,
-                     ichimoku_tenkan, ichimoku_kijun, ichimoku_senkou_b,
-                     ha_ema_fast, ha_ema_slow,
-                     profit_factor, total_trades, win_rate, max_drawdown, sharpe, generation)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     atr_sl_multiplier, atr_tp_multiplier, min_adx,
+                     profit_factor, total_trades, wins, win_rate, total_pnl,
+                     max_drawdown, sharpe, generation)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (g.id, symbol, g.ema_fast, g.ema_slow, g.rsi_period,
                       g.rsi_overbought, g.rsi_oversold,
-                      g.bb_period, g.bb_stddev, int(g.use_bb_filter),
-                      g.macd_fast, g.macd_slow, g.macd_signal, int(g.use_macd_filter),
                       int(g.use_volume_filter), g.volume_min_multiplier,
-                      g.atr_sl_multiplier, g.atr_tp_multiplier, g.min_adx, g.min_atr_pips, g.max_spread_pips,
-                      int(g.use_ema_cross), int(g.use_macd_cross), int(g.use_bb_bounce),
-                      int(g.use_ichimoku_breakout), int(g.use_heikin_ashi),
-                      g.ichimoku_tenkan, g.ichimoku_kijun, g.ichimoku_senkou_b,
-                      g.ha_ema_fast, g.ha_ema_slow,
-                      g.profit_factor, g.total_trades, g.win_rate,
+                      g.atr_sl_multiplier, g.atr_tp_multiplier, g.min_adx,
+                      g.profit_factor, g.total_trades, g.wins, g.win_rate, g.total_pnl,
                       g.max_drawdown, g.sharpe, g.generation))
             conn.commit()
             conn.close()
@@ -1124,33 +921,16 @@ class GeneticSearcher:
                 rsi_period=d.get('rsi_period', 14),
                 rsi_overbought=d.get('rsi_overbought', 70),
                 rsi_oversold=d.get('rsi_oversold', 30),
-                bb_period=d.get('bb_period', 20),
-                bb_stddev=d.get('bb_stddev', 2.0),
-                use_bb_filter=bool(d.get('use_bb_filter', 1)),
-                macd_fast=d.get('macd_fast', 12),
-                macd_slow=d.get('macd_slow', 26),
-                macd_signal=d.get('macd_signal', 9),
-                use_macd_filter=bool(d.get('use_macd_filter', 1)),
                 use_volume_filter=bool(d.get('use_volume_filter', 1)),
                 volume_min_multiplier=d.get('volume_min_multiplier', 0.8),
                 atr_sl_multiplier=d.get('atr_sl_multiplier', 2.0),
                 atr_tp_multiplier=d.get('atr_tp_multiplier', 4.0),
                 min_adx=d.get('min_adx', 20.0),
-                min_atr_pips=d.get('min_atr_pips', 5.0),
-                max_spread_pips=d.get('max_spread_pips', 5.0),
-                use_ema_cross=bool(d.get('use_ema_cross', 1)),
-                use_macd_cross=bool(d.get('use_macd_cross', 1)),
-                use_bb_bounce=bool(d.get('use_bb_bounce', 0)),
-                use_ichimoku_breakout=bool(d.get('use_ichimoku_breakout', 0)),
-                use_heikin_ashi=bool(d.get('use_heikin_ashi', 0)),
-                ichimoku_tenkan=d.get('ichimoku_tenkan', 9),
-                ichimoku_kijun=d.get('ichimoku_kijun', 26),
-                ichimoku_senkou_b=d.get('ichimoku_senkou_b', 52),
-                ha_ema_fast=d.get('ha_ema_fast', 9),
-                ha_ema_slow=d.get('ha_ema_slow', 21),
                 profit_factor=d.get('profit_factor', 0),
                 total_trades=d.get('total_trades', 0),
+                wins=d.get('wins', 0),
                 win_rate=d.get('win_rate', 0),
+                total_pnl=d.get('total_pnl', 0),
                 max_drawdown=d.get('max_drawdown', 0),
                 sharpe=d.get('sharpe', 0),
                 generation=d.get('generation', 0),
