@@ -164,6 +164,19 @@ def api_status():
     return jsonify({"status": status})
 
 
+@app.route('/api/diagnostics')
+def api_diagnostics():
+    """Get detailed diagnostics about why trades aren't happening"""
+    global engine
+    if not engine:
+        return jsonify({
+            "error": "Engine not initialized",
+            "engine_status": "NOT_INITIALIZED",
+            "hint": "Start the engine from the dashboard"
+        })
+    return jsonify(engine.get_diagnostics())
+
+
 @app.route('/api/market')
 def api_market():
     """Get current market data for all symbols"""

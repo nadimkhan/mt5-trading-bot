@@ -179,6 +179,15 @@ class TradingEngine:
         self.positions = []
         self.trade_history = []
         self.ai_decisions = []
+        self.rejection_log = []  # Track why trades are rejected
+        self.diagnostics = {
+            'last_scalp_loop': None,
+            'last_scalp_loop_time': None,
+            'symbols_checked': 0,
+            'rejections_by_reason': {},
+            'last_market_data_update': None,
+            'last_error': None
+        }
         self.status = "INITIALIZING"
         
         # Cached H4 trend (changes slowly)
@@ -530,6 +539,12 @@ class TradingEngine:
 
     def _scalp_loop(self):
         """Fast loop - Check M5 for entry signals"""
+        from datetime import datetime
+        # Track diagnostics
+        self.diagnostics['last_scalp_loop'] = datetime.now().isoformat()
+        self.diagnostics['last_scalp_loop_time'] = datetime.now().isoformat()
+        self.diagnostics['symbols_checked'] = 0
+
         # Reset daily stats if new day
         self._check_daily_reset()
 
@@ -742,6 +757,7 @@ class TradingEngine:
 
                 # If no clear signal, skip
                 if setup.get("signal") in ["HOLD", "NONE", None]:
+                    self.log_rejection(symbol, 'no_signal', 'Strategy returned HOLD/NONE')
                     continue
 
                 # Check confidence threshold from strategy config
@@ -753,6 +769,7 @@ class TradingEngine:
                 setup_confidence = setup.get("confidence", 0)
                 if setup_confidence < min_conf:
                     logger.info(f"{symbol}: REJECTED - confidence {setup_confidence}% < min {min_conf}%")
+                    self.log_rejection(symbol, 'low_confidence', f'{setup_confidence}% < {min_conf}%')
                     continue
 
                 # Check momentum (is price moving strongly enough?)
@@ -762,14 +779,17 @@ class TradingEngine:
                     mom_ok, momentum, mom_dir = is_momentum_strong(m5_closes, period=10, min_momentum_pct=0.05)
                     if not mom_ok:
                         logger.info(f"{symbol}: REJECTED - momentum too weak ({momentum:.3f}%)")
+                        self.log_rejection(symbol, 'weak_momentum', f'{momentum:.3f}%')
                         continue
                     # Momentum should align with signal
                     signal = setup.get("signal")
                     if signal == "BUY" and mom_dir != "BULL":
                         logger.info(f"{symbol}: REJECTED - momentum bearish ({momentum:.3f}%) but signal BUY")
+                        self.log_rejection(symbol, 'momentum_mismatch', f'BUY signal but momentum={momentum:.3f}%')
                         continue
                     if signal == "SELL" and mom_dir != "BEAR":
                         logger.info(f"{symbol}: REJECTED - momentum bullish ({momentum:.3f}%) but signal SELL")
+                        self.log_rejection(symbol, 'momentum_mismatch', f'SELL signal but momentum={momentum:.3f}%')
                         continue
 
                 # Check volume (is current volume above average?)
@@ -778,6 +798,7 @@ class TradingEngine:
                     vol_ok, curr_vol, avg_vol, vol_ratio = is_volume_confirmed(m5_volumes, period=20, multiplier=1.0)
                     if not vol_ok:
                         logger.info(f"{symbol}: REJECTED - volume below average (ratio {vol_ratio:.2f})")
+                        self.log_rejection(symbol, 'low_volume', f'ratio={vol_ratio:.2f}')
                         continue
 
                 # Check news filter (no high-impact news in next 30 min)
@@ -788,6 +809,7 @@ class TradingEngine:
                             news_name = news_events[0].get('name', 'Unknown')
                             hours_away = news_events[0].get('hours_away', 0)
                             logger.info(f"{symbol}: REJECTED - news window: {news_name} in {hours_away}h")
+                            self.log_rejection(symbol, 'news_window', f'{news_name} in {hours_away}h')
                             continue
                     except Exception as e:
                         logger.error(f"News check error: {e}")
@@ -804,6 +826,7 @@ class TradingEngine:
                         min_rr = getattr(strategy_obj, 'min_risk_reward', 1.5) if strategy_obj else 1.5
                         if rr < min_rr:
                             logger.info(f"{symbol}: REJECTED - RR {rr:.2f} < min {min_rr}")
+                            self.log_rejection(symbol, 'low_rr', f'RR={rr:.2f} < {min_rr}')
                             continue
 
                 # Apply AI CONFIRMATION GATE - AI must confirm before trade is allowed
@@ -845,6 +868,7 @@ class TradingEngine:
                     ai_min_conf = 50  # Minimum confidence for AI to confirm
                     if ai_action != setup_action:
                         logger.info(f"{symbol}: AI REJECTED - system says {setup_action}, AI says {ai_action}: {ai_reasoning}")
+                        self.log_rejection(symbol, 'ai_mismatch', f'AI={ai_action} vs System={setup_action}: {ai_reasoning[:50]}')
                         decisions[symbol] = {
                             "action": "HOLD",
                             "symbol": symbol,
@@ -868,6 +892,7 @@ class TradingEngine:
 
                     if ai_action == "HOLD" or ai_confidence < ai_min_conf:
                         logger.info(f"{symbol}: AI REJECTED - HOLD or low conf ({ai_confidence}%): {ai_reasoning}")
+                        self.log_rejection(symbol, 'ai_hold_low_conf', f'conf={ai_confidence}%: {ai_reasoning[:50]}')
                         decisions[symbol] = {
                             "action": "HOLD",
                             "symbol": symbol,
@@ -952,6 +977,7 @@ class TradingEngine:
         # Check if we already have position
         if any(p["symbol"] == symbol for p in self.positions):
             logger.info(f"{symbol}: Already have position, skipping")
+            self.log_rejection(symbol, 'already_in_position', f'Have open position on {symbol}')
             return
 
         # Check daily trade limit and loss limit
@@ -1163,6 +1189,69 @@ class TradingEngine:
             "trend_direction": self.trend_direction,
             "timestamp": datetime.now()
         }
+
+    def log_rejection(self, symbol, reason, details=None):
+        """Log a trade rejection for diagnostics"""
+        from datetime import datetime
+        entry = {
+            "timestamp": datetime.now().isoformat(),
+            "symbol": symbol,
+            "reason": reason,
+            "details": details or ""
+        }
+        self.rejection_log.append(entry)
+        # Keep last 50
+        self.rejection_log = self.rejection_log[-50:]
+        # Count by reason
+        reason_key = reason.split(':')[0] if ':' in reason else reason
+        self.diagnostics['rejections_by_reason'][reason_key] = \
+            self.diagnostics['rejections_by_reason'].get(reason_key, 0) + 1
+
+    def get_diagnostics(self):
+        """Get detailed diagnostics about why trades aren't happening"""
+        try:
+            from datetime import datetime, timedelta
+            # Check time since last activity
+            now = datetime.now()
+            last_loop = None
+            if self.diagnostics.get('last_scalp_loop_time'):
+                try:
+                    last_loop = datetime.fromisoformat(self.diagnostics['last_scalp_loop_time'])
+                except:
+                    pass
+            time_since_loop = (now - last_loop).total_seconds() if last_loop else None
+
+            # MT5 connection status
+            mt5_connected = False
+            if self.mt5:
+                try:
+                    mt5_connected = self.mt5.is_connected()
+                except:
+                    pass
+
+            # Last few rejections
+            recent_rejections = self.rejection_log[-10:] if self.rejection_log else []
+
+            # Active strategy
+            active_strategy = self.strategy_manager.active_strategy if self.strategy_manager else 'none'
+
+            return {
+                "engine_status": self.status,
+                "engine_running": self.running,
+                "mt5_connected": mt5_connected,
+                "active_strategy": active_strategy,
+                "enabled_symbols": self.symbols or [],
+                "timeframes": self.timeframes,
+                "diagnostics": self.diagnostics,
+                "seconds_since_last_loop": time_since_loop,
+                "ai_decisions_count": len(self.ai_decisions) if self.ai_decisions else 0,
+                "last_ai_decision": self.ai_decisions[-1] if self.ai_decisions else None,
+                "recent_rejections": recent_rejections,
+                "rejection_count_by_reason": self.diagnostics.get('rejections_by_reason', {}),
+                "ai_required": True,  # Default
+            }
+        except Exception as e:
+            return {"error": str(e), "engine_status": self.status if hasattr(self, 'status') else 'unknown'}
 
 
 # Test
