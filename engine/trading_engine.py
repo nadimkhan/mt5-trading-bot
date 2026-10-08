@@ -914,6 +914,16 @@ class TradingEngine:
         except Exception as e:
             logger.error(f"Strategy decisions failed: {e}")
 
+        # Track all decisions (veto, mismatch, confirmed) in self.ai_decisions for dashboard
+        for symbol, dec in decisions.items():
+            self.ai_decisions.append({
+                "timestamp": datetime.now(),
+                "decision": dec,
+                "market_data": self.market_data
+            })
+        # Keep only last 50 decisions
+        self.ai_decisions = self.ai_decisions[-50:]
+
         return decisions
 
     def _execute_decision(self, decision):
