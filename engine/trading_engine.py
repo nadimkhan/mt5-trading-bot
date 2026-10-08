@@ -286,12 +286,19 @@ class TradingEngine:
             return False
 
     def _apply_strategy_timeframes(self):
-        """Apply timeframes and intervals from the active strategy's saved config"""
+        """Apply timeframes and intervals from the active strategy's saved config.
+        Falls back to scalp's config if active strategy has no timeframes (e.g. regime)."""
         try:
             from strategies.strategy_config import load_configs
             configs = load_configs()
             active = self.strategy_manager.active_strategy if self.strategy_manager else "scalp"
             strategy_config = configs.get(active, {})
+
+            # If active strategy has no timeframes, fall back to scalp's
+            if not strategy_config.get("timeframes"):
+                logger.info(f"No timeframes config for '{active}', falling back to scalp's")
+                strategy_config = configs.get("scalp", {})
+
             tf_config = strategy_config.get("timeframes", {})
 
             # Update timeframes
