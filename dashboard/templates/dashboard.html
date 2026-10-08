@@ -87,26 +87,38 @@
         .page-title span { color: var(--accent-cyan); }
 
         .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
-        .stat-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 16px; padding: 20px; position: relative; overflow: hidden; }
+        .stat-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 16px; padding: 20px; position: relative; overflow: hidden; transition: all 0.2s; }
+        .stat-card:hover { border-color: var(--accent-cyan); transform: translateY(-2px); box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3); }
         .stat-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, var(--accent-cyan), var(--accent-purple)); opacity: 0.5; }
         .stat-card.green::before { background: var(--accent-green); opacity: 1; }
         .stat-card.red::before { background: var(--accent-red); opacity: 1; }
         .stat-card.purple::before { background: var(--accent-purple); opacity: 1; }
-        .stat-label { font-size: 12px; font-weight: 500; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
-        .stat-value { font-family: 'JetBrains Mono', monospace; font-size: 28px; font-weight: 700; line-height: 1; }
+        .stat-label { font-size: 12px; font-weight: 500; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; }
+        .stat-value { font-family: 'JetBrains Mono', monospace; font-size: 28px; font-weight: 700; line-height: 1; transition: color 0.2s; }
         .stat-value.positive { color: var(--accent-green); }
         .stat-value.negative { color: var(--accent-red); }
+        .stat-value.loading { opacity: 0.4; }
 
         .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
-        .card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 16px; padding: 20px; }
-        .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+        .card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 16px; padding: 20px; transition: border-color 0.2s; min-height: 200px; display: flex; flex-direction: column; }
+        .card:hover { border-color: var(--border-color); }
+        .card.loading { opacity: 0.6; }
+        .card-content { flex: 1; overflow-y: auto; }
+        .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border-color); }
         .card-title { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
         .card-title svg { width: 18px; height: 18px; stroke: var(--accent-cyan); stroke-width: 2; fill: none; }
+        .card-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 10px; font-size: 10px; color: var(--text-muted); }
+
+        /* Loading spinner */
+        .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border-color); border-top-color: var(--accent-cyan); border-radius: 50%; animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading-text { color: var(--text-muted); font-size: 12px; display: flex; align-items: center; gap: 8px; padding: 20px 0; justify-content: center; }
 
         .positions-table { width: 100%; border-collapse: collapse; }
-        .positions-table th { text-align: left; padding: 10px 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); border-bottom: 1px solid var(--border-color); }
+        .positions-table th { text-align: left; padding: 10px 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); border-bottom: 1px solid var(--border-color); position: sticky; top: 0; background: var(--bg-card); }
         .positions-table td { padding: 12px; font-size: 13px; border-bottom: 1px solid var(--border-color); }
         .positions-table tr:last-child td { border-bottom: none; }
+        .positions-table tr:hover { background: var(--bg-card-hover); }
         .symbol-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: var(--bg-secondary); border-radius: 6px; font-weight: 600; font-size: 12px; }
         .type-badge { padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
         .type-badge.buy { background: rgba(16, 185, 129, 0.15); color: var(--accent-green); }
@@ -234,19 +246,19 @@
             <div class="grid-2">
                 <div class="card">
                     <div class="card-header"><div class="card-title"><svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>Open Positions</div></div>
-                    <div id="positions-data"><div class="empty-state"><svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg><p>No open positions</p></div></div>
+                    <div id="positions-data" class="card-content"></div>
                 </div>
                 <div class="card">
                     <div class="card-header"><div class="card-title"><svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Market Analysis</div></div>
-                    <div id="market-data"><div class="empty-state"><p>Loading market data...</p></div></div>
+                    <div id="market-data" class="card-content"></div>
                 </div>
                 <div class="card">
                     <div class="card-header"><div class="card-title"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10H12V2z"/></svg>AI Decisions</div></div>
-                    <div id="ai-decisions"><div class="empty-state"><p>Waiting for decisions...</p></div></div>
+                    <div id="ai-decisions" class="card-content"></div>
                 </div>
                 <div class="card">
                     <div class="card-header"><div class="card-title"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Recent Trades</div></div>
-                    <div id="trade-history"><div class="empty-state"><p>No trade history</p></div></div>
+                    <div id="trade-history" class="card-content"></div>
                 </div>
             </div>
         </main>
@@ -274,8 +286,46 @@
     <script>
         const socket = io();
 
+        // ========================================
+        // UTILITIES
+        // ========================================
         function updateTime() { document.getElementById('time-display').textContent = new Date().toLocaleTimeString('en-US', { hour12: false }); }
         setInterval(updateTime, 1000); updateTime();
+
+        // Format currency consistently
+        function formatMoney(val) {
+            const sign = val >= 0 ? '+' : '-';
+            return sign + '$' + Math.abs(val).toFixed(2);
+        }
+
+        // Format percentage
+        function formatPct(val) { return val + '%'; }
+
+        // Show loading spinner in an element
+        function showLoading(elementId, message) {
+            const el = document.getElementById(elementId);
+            if (!el) return;
+            el.innerHTML = '<div class="loading-text"><span class="spinner"></span>' + (message || 'Loading...') + '</div>';
+        }
+
+        // Show friendly error
+        function showError(elementId, error) {
+            const el = document.getElementById(elementId);
+            if (!el) return;
+            el.innerHTML = '<div class="empty-state" style="color: var(--accent-red);"><p>⚠ ' + error + '</p></div>';
+        }
+
+        // Show empty state
+        function showEmpty(elementId, icon, message, hint) {
+            const el = document.getElementById(elementId);
+            if (!el) return;
+            let html = '<div class="empty-state">';
+            if (icon) html += '<div style="font-size: 32px; opacity: 0.5; margin-bottom: 8px;">' + icon + '</div>';
+            html += '<p style="font-weight: 500; margin-bottom: 4px;">' + message + '</p>';
+            if (hint) html += '<p style="font-size: 11px; color: var(--text-muted);">' + hint + '</p>';
+            html += '</div>';
+            el.innerHTML = html;
+        }
 
         // Button handlers
         document.getElementById('btn-start').addEventListener('click', function() {
@@ -299,14 +349,32 @@
         socket.on('market_update', (marketData) => { updateMarket(marketData); });
         socket.on('analytics_update', (analytics) => { updateAnalytics(analytics); });
 
+        // Show initial loading states
+        showLoading('positions-data', 'Loading positions...');
+        showLoading('market-data', 'Loading market data...');
+        showLoading('ai-decisions', 'Loading AI decisions...');
+        showLoading('trade-history', 'Loading trade history...');
+
         function loadInitialData() {
-            fetch('/api/status').then(r => r.json()).then(data => updateStatus(data));
-            fetch('/api/positions').then(r => r.json()).then(data => updatePositions(data));
-            fetch('/api/analytics').then(r => r.json()).then(data => updateAnalytics(data));
-            fetch('/api/strategies').then(r => r.json()).then(data => updateStrategyUI(data.current));
-            fetch('/api/decisions').then(r => r.json()).then(data => updateDecisions(data));
-            fetch('/api/history').then(r => r.json()).then(data => updateHistory(data));
-            fetch('/api/market').then(r => r.json()).then(data => updateMarket(data));
+            // Use safe fetch wrapper for better error handling
+            safeFetch('/api/status', updateStatus, (err) => console.error('Status:', err));
+            safeFetch('/api/positions', updatePositions, (err) => showError('positions-data', 'Failed to load'));
+            safeFetch('/api/analytics', updateAnalytics, (err) => console.error('Analytics:', err));
+            safeFetch('/api/strategies', (data) => updateStrategyUI(data.current), (err) => console.error('Strategies:', err));
+            safeFetch('/api/decisions', updateDecisions, (err) => showError('ai-decisions', 'Failed to load'));
+            safeFetch('/api/history', updateHistory, (err) => showError('trade-history', 'Failed to load'));
+            safeFetch('/api/market', updateMarket, (err) => showError('market-data', 'Failed to load'));
+        }
+
+        // Safe fetch wrapper
+        function safeFetch(url, onSuccess, onError) {
+            return fetch(url)
+                .then(r => {
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    return r.json();
+                })
+                .then(data => { try { onSuccess(data); } catch(e) { console.error('Handler error:', e); } })
+                .catch(err => { if (onError) onError(err); });
         }
 
         function setStrategy(strategy) {
@@ -367,7 +435,10 @@
 
         function updatePositions(positions) {
             const container = document.getElementById('positions-data');
-            if (!positions || positions.length === 0) { container.innerHTML = '<div class="empty-state"><svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg><p>No open positions</p></div>'; return; }
+            if (!positions || positions.length === 0) {
+                showEmpty('positions-data', '○', 'No open positions', 'Start the engine to look for trading opportunities');
+                return;
+            }
             let html = '<table class="positions-table"><thead><tr><th>Symbol</th><th>Type</th><th>Lot</th><th>Entry</th><th>P&L</th></tr></thead><tbody>';
             positions.forEach(p => { const pnl = p.profit || 0; const pnlClass = pnl >= 0 ? 'positive' : 'negative'; const sign = pnl >= 0 ? '+' : '-'; const absPnl = Math.abs(pnl).toFixed(2); html += '<tr><td><span class="symbol-badge">' + p.symbol + '</span></td><td><span class="type-badge ' + p.type.toLowerCase() + '">' + p.type + '</span></td><td>' + p.volume + '</td><td>' + p.price_open.toFixed(5) + '</td><td><span class="pnl-value ' + pnlClass + '">' + sign + '$' + absPnl + '</span></td></tr>'; });
             html += '</tbody></table>';
@@ -376,7 +447,10 @@
 
         function updateDecisions(decisions) {
             const container = document.getElementById('ai-decisions');
-            if (!decisions || decisions.length === 0) { container.innerHTML = '<div class="empty-state"><p>No decisions yet</p></div>'; return; }
+            if (!decisions || decisions.length === 0) {
+                showEmpty('ai-decisions', '⌛', 'No decisions yet', 'The bot will log decisions here as it analyzes the market');
+                return;
+            }
             let html = '';
             decisions.slice(0, 8).forEach(d => {
                 const action = d.action || 'HOLD';
@@ -410,7 +484,10 @@
 
         function updateHistory(history) {
             const container = document.getElementById('trade-history');
-            if (!history || history.length === 0) { container.innerHTML = '<div class="empty-state"><p>No trade history</p></div>'; return; }
+            if (!history || history.length === 0) {
+                showEmpty('trade-history', '○', 'No closed trades yet', 'Trades will appear here once the bot closes its first position');
+                return;
+            }
             let html = '<table class="positions-table"><thead><tr><th>Symbol</th><th>Type</th><th>Entry</th><th>Exit</th><th>P&L</th></tr></thead><tbody>';
             history.slice(0, 5).forEach(t => { const pnl = t.pnl || 0; const pnlClass = pnl >= 0 ? 'positive' : 'negative'; const sign = pnl >= 0 ? '+' : '-'; const absPnl = Math.abs(pnl).toFixed(2); html += '<tr><td><span class="symbol-badge">' + t.symbol + '</span></td><td><span class="type-badge ' + t.action.toLowerCase() + '">' + t.action + '</span></td><td>' + t.entry_price.toFixed(5) + '</td><td>' + (t.exit_price ? t.exit_price.toFixed(5) : '-') + '</td><td><span class="pnl-value ' + pnlClass + '">' + sign + '$' + absPnl + '</span></td></tr>'; });
             html += '</tbody></table>';
