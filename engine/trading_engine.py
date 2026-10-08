@@ -925,32 +925,50 @@ class TradingEngine:
                         if adjustments.get("tp"):
                             setup["take_profit"] = adjustments["tp"]
 
-                # Build decision dict
+                # Build decision dict - ALWAYS log, even if AI is not required
                 action = "BUY" if setup.get("signal") == "BUY" else "SELL"
-
-                decisions[symbol] = {
-                    "action": action,
-                    "symbol": symbol,
-                    "lot_size": setup.get("lot_size", self.config.get("trading", {}).get("default_lot_size", 0.01)),
-                    "stop_loss_pips": setup.get("sl_pips", self.config.get("trading", {}).get("default_stop_loss_pips", 30)),
-                    "take_profit_pips": setup.get("tp_pips", self.config.get("trading", {}).get("default_take_profit_pips", 50)),
-                    "reasoning": f"AI CONFIRMED: {ai_reasoning}",
-                    "signal": action,
-                    "strategy": "rule_based",
-                    "confidence": setup_confidence,
-                    "entry_price": setup.get("entry_zone"),
-                    "stop_loss": setup.get("stop_loss"),
-                    "take_profit": setup.get("take_profit"),
-                    "market_regime": regime.get("regime") if regime else "UNKNOWN",
-                    "vetoed": False,
-                    "ai_action": ai_action,
-                    "ai_confidence": ai_confidence
-                }
+                if setup.get("signal") in ("BUY", "SELL"):
+                    decisions[symbol] = {
+                        "action": action,
+                        "symbol": symbol,
+                        "lot_size": setup.get("lot_size", self.config.get("trading", {}).get("default_lot_size", 0.01)),
+                        "stop_loss_pips": setup.get("sl_pips", self.config.get("trading", {}).get("default_stop_loss_pips", 30)),
+                        "take_profit_pips": setup.get("tp_pips", self.config.get("trading", {}).get("default_take_profit_pips", 50)),
+                        "reasoning": setup.get("reason", "Strategy signal") if not ai_required else f"AI CONFIRMED: {ai_reasoning}",
+                        "signal": action,
+                        "strategy": self.strategy_manager.active_strategy if self.strategy_manager else "scalp",
+                        "confidence": setup_confidence,
+                        "entry_price": setup.get("entry_zone"),
+                        "stop_loss": setup.get("stop_loss"),
+                        "take_profit": setup.get("take_profit"),
+                        "market_regime": regime.get("regime") if regime else "UNKNOWN",
+                        "vetoed": False,
+                        "ai_action": ai_action,
+                        "ai_confidence": ai_confidence
+                    }
+                else:
+                    # HOLD decision - still log it for visibility
+                    decisions[symbol] = {
+                        "action": "HOLD",
+                        "symbol": symbol,
+                        "lot_size": 0,
+                        "stop_loss_pips": 0,
+                        "take_profit_pips": 0,
+                        "reasoning": setup.get("reason", "HOLD"),
+                        "signal": "HOLD",
+                        "strategy": self.strategy_manager.active_strategy if self.strategy_manager else "scalp",
+                        "confidence": setup_confidence,
+                        "entry_price": None,
+                        "stop_loss": None,
+                        "take_profit": None,
+                        "market_regime": regime.get("regime") if regime else "UNKNOWN",
+                        "vetoed": False
+                    }
 
         except Exception as e:
             logger.error(f"Strategy decisions failed: {e}")
 
-        # Track all decisions (veto, mismatch, confirmed) in self.ai_decisions for dashboard
+        # Track all decisions (veto, mismatch, confirmed, HOLD) in self.ai_decisions for dashboard
         for symbol, dec in decisions.items():
             self.ai_decisions.append({
                 "timestamp": datetime.now(),
