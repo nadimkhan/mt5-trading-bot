@@ -245,7 +245,8 @@
         .config-buttons { display: flex; gap: 8px; padding: 16px 24px; border-top: 1px solid var(--border-color); justify-content: space-between; }
 
         .sidebar-btn { width: 100%; margin: 6px 0; padding: 8px 10px; background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 6px; font-family: inherit; font-size: 11px; font-weight: 500; cursor: pointer; transition: all 0.2s; display: block; }
-        .sidebar-btn:hover { border-color: var(--accent-purple); color: var(--accent-purple); background: rgba(139, 92, 246, 0.1); }
+        .sidebar-btn:hover:not(:disabled) { border-color: var(--accent-purple); color: var(--accent-purple); background: rgba(139, 92, 246, 0.1); }
+        .sidebar-btn:disabled { background: var(--bg-secondary); color: var(--text-muted); border-color: var(--border-color); cursor: not-allowed; opacity: 0.4; }
 
         .streak-indicator { display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; font-family: 'JetBrains Mono', monospace; background: var(--bg-card); color: var(--text-muted); border: 1px solid var(--border-color); }
         .streak-indicator.win { background: rgba(16, 185, 129, 0.2); color: var(--accent-green); border-color: var(--accent-green); }
@@ -597,6 +598,13 @@
         function updateStrategyUI(strategy) {
             document.getElementById('btn-scalp').classList.toggle('active', strategy === 'scalp');
             document.getElementById('btn-trend').classList.toggle('active', strategy === 'trend');
+            document.getElementById('btn-ml').classList.toggle('active', strategy === 'ml');
+
+            // Enable/disable context buttons based on strategy
+            const mlSearchBtn = document.getElementById('btn-ml-search');
+            const configBtn = document.getElementById('btn-config');
+            if (mlSearchBtn) mlSearchBtn.disabled = (strategy !== 'ml');
+            if (configBtn) configBtn.disabled = (strategy === 'ml');
         }
 
         function updateStatus(data) {
