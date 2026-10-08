@@ -768,14 +768,25 @@ class TradingEngine:
             # Log decision
             self.ai_decisions.append({
                 "timestamp": datetime.now(),
-                "decision": decision,
+                "decision": dec,
                 "market_data": self.market_data
             })
-            
+            # Also save to DB so it shows in trade history
+            try:
+                db_insert_ai_decision(
+                    symbol=dec.get("symbol", "UNKNOWN"),
+                    action=dec.get("action", "HOLD"),
+                    lot_size=dec.get("lot_size", 0),
+                    reasoning=dec.get("reasoning", dec.get("reason", ""))[:500],
+                    confidence=dec.get("confidence", 0)
+                )
+            except Exception:
+                pass  # Don't fail if DB write fails
+
             # Keep only last 50 decisions
             self.ai_decisions = self.ai_decisions[-50:]
-            
-            return decision
+
+            return decisions
             
         except Exception as e:
             logger.error(f"AI decision failed: {e}")
@@ -1076,6 +1087,17 @@ class TradingEngine:
                 "decision": dec,
                 "market_data": self.market_data
             })
+            # Also save to DB for trade history
+            try:
+                db_insert_ai_decision(
+                    symbol=dec.get("symbol", "UNKNOWN"),
+                    action=dec.get("action", "HOLD"),
+                    lot_size=dec.get("lot_size", 0),
+                    reasoning=dec.get("reasoning", dec.get("reason", ""))[:500],
+                    confidence=dec.get("confidence", 0)
+                )
+            except Exception:
+                pass
         # Keep only last 50 decisions
         self.ai_decisions = self.ai_decisions[-50:]
 
