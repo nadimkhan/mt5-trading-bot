@@ -251,8 +251,16 @@ class TrendFollowingStrategy:
     AI filters out ranging markets
     """
 
-    def __init__(self, config: dict = None):
+    def __init__(self, config: dict = None, timeframes: dict = None):
         self.config = config or {}
+        # Get timeframes from config or use sensible defaults
+        if timeframes is None:
+            timeframes = self.config.get('timeframes', {})
+        self.timeframes = {
+            'trend': timeframes.get('trend', 'H4'),
+            'entry': timeframes.get('entry', 'M15'),
+            'confirm': timeframes.get('confirm', 'M5')
+        }
         try:
             from strategies.strategy_config import load_configs
             saved = load_configs().get("trend", {})
