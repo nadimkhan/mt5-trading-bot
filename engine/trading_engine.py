@@ -433,6 +433,7 @@ class TradingEngine:
             # Broadcast positions
             socketio.emit('positions_update', positions)
 
+            logger.info(f"[BROADCAST] Sending {len(decisions)} decisions (in-memory list size: {len(self.ai_decisions)})")
             # Broadcast AI decisions
             socketio.emit('decisions_update', decisions)
 
@@ -727,15 +728,19 @@ class TradingEngine:
         decisions = {}
         
         try:
+            logger.info(f"[DECISIONS] Starting strategy_decisions, symbols={self.symbols}, positions={len(self.positions)}")
             for symbol in self.symbols:
                 # Check if we already have position for this symbol
                 if any(p["symbol"] == symbol for p in self.positions):
+                    logger.info(f"[DECISIONS] {symbol}: skip (have position)")
                     continue
-                
+
                 # Get multi-timeframe market data
                 market_data = self.market_data.get(symbol, {})
                 if not market_data:
+                    logger.info(f"[DECISIONS] {symbol}: skip (no market_data)")
                     continue
+                logger.info(f"[DECISIONS] {symbol}: have market_data, TFs={list(market_data.keys())}")
 
                 # Check regime filter first
                 closes = market_data.get('closes', [])
