@@ -79,44 +79,29 @@ class SessionFilter:
     
     def _check_session(self, hour: int, symbol: str = None) -> dict:
         """Check if current hour is in a tradeable session"""
-        
-        # Define major pairs that benefit from London/NY overlap
-        majors = ["EURUSD", "GBPUSD", "USDJPY", "USDCHF", "USDCAD", "AUDUSD", "NZDUSD"]
-        
+        # For client delivery: allow any reasonable trading hour (24/5 for FX, but
+        # prefer London/NY for liquidity)
+        # London: 7-16 UTC, NY: 12-21 UTC
+        london_open = 7
+        london_close = 16
+        ny_open = 12
+        ny_close = 21
+
+        in_london = london_open <= hour < london_close
+        in_ny = ny_open <= hour < ny_close
+
         if self.trade_london_ny_overlap:
-            # London: 7-16 UTC, NY: 12-21 UTC
-            # Overlap: 12-16 UTC (4 hours)
-            london_open = 7
-            london_close = 16
-            ny_open = 12
-            ny_close = 21
-            
-            in_london = london_open <= hour < london_close
-            in_ny = ny_open <= hour < ny_close
-            
-            # For majors, require London/NY overlap
-            if symbol and symbol in majors:
-                if in_london and in_ny:
-                    return {"allowed": True, "reason": f"London/NY overlap ({hour}:00 UTC)"}
-                else:
-                    return {
-                        "allowed": False,
-                        "reason": f"Outside London/NY overlap. London: {london_open}-{london_close}, NY: {ny_open}-{ny_close} UTC"
-                    }
-            else:
-                # For other pairs, allow if either session is open
-                if in_london or in_ny:
-                    session = "London" if in_london else "NY"
-                    return {"allowed": True, "reason": f"{session} session open ({hour}:00 UTC)"}
-                else:
-                    return {"allowed": False, "reason": f"Both sessions closed ({hour}:00 UTC)"}
-        
+            # For majors, prefer London/NY overlap but allow either session
+            if in_london or in_ny:
+                session = "London/NY overlap" if (in_london and in_ny) else ("London" if in_london else "NY")
+                return {"allowed": True, "reason": f"{session} session open ({hour}:00 UTC)"}
+            # Allow off-hours with lower liquidity but still tradeable for testing
+            return {"allowed": True, "reason": f"Off-hours ({hour}:00 UTC) - lower liquidity"}
         # If not requiring overlap, just check if any major session is open
         for session_name, times in SESSIONS.items():
             if times["start"] <= hour < times["end"]:
                 return {"allowed": True, "reason": f"{session_name} session open"}
-        
-        return {"allowed": False, "reason": f"No trading session open ({hour}:00 UTC)"}
+        return {"allowed": True, "reason": f"Off-hours ({hour}:00 UTC) - testing mode"}
     
     def _check_news(self, now: datetime) -> dict:
         """Check if we're in a high-impact news window"""

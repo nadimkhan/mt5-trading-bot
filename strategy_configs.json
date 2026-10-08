@@ -690,5 +690,6 @@
         "label": "Win Streak Threshold"
       }
     }
-  }
+  },
+  "__active_strategy__": "regime"
 }
