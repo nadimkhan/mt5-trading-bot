@@ -308,13 +308,13 @@ class MT5Connector:
             if symbol_info is None:
                 logger.error(f"Unknown symbol: {symbol}")
                 return None
-                
+
             # Get current prices
             tick = mt5.symbol_info_tick(symbol)
             if tick is None:
                 logger.error(f"Cannot get price for {symbol}")
                 return None
-                
+
             # Prepare request
             if order_type.upper() == "BUY":
                 price = tick.ask
@@ -322,7 +322,31 @@ class MT5Connector:
             else:
                 price = tick.bid
                 order_mt5 = mt5.ORDER_TYPE_SELL
-                
+
+            # Validate SL/TP against minimum stop level
+            point = symbol_info.point
+            min_stop_distance = symbol_info.trade_stops_level * point
+            if sl is not None:
+                if order_mt5 == mt5.ORDER_TYPE_BUY:
+                    # SL must be below price by at least min_stop_distance
+                    if sl > price - min_stop_distance:
+                        sl = round(price - min_stop_distance - min_stop_distance * 0.1, symbol_info.digits)
+                        logger.info(f"SL adjusted to respect min stop level: {sl}")
+                else:
+                    # SL must be above price by at least min_stop_distance
+                    if sl < price + min_stop_distance:
+                        sl = round(price + min_stop_distance + min_stop_distance * 0.1, symbol_info.digits)
+                        logger.info(f"SL adjusted to respect min stop level: {sl}")
+            if tp is not None:
+                if order_mt5 == mt5.ORDER_TYPE_BUY:
+                    if tp < price + min_stop_distance:
+                        tp = round(price + min_stop_distance + min_stop_distance * 0.1, symbol_info.digits)
+                        logger.info(f"TP adjusted to respect min stop level: {tp}")
+                else:
+                    if tp > price - min_stop_distance:
+                        tp = round(price - min_stop_distance - min_stop_distance * 0.1, symbol_info.digits)
+                        logger.info(f"TP adjusted to respect min stop level: {tp}")
+
             request = {
                 "action": mt5.TRADE_ACTION_DEAL,
                 "symbol": symbol,
@@ -334,25 +358,25 @@ class MT5Connector:
                 "comment": comment,
                 "type_filling": mt5.ORDER_FILLING_IOC  # IOC is the only mode supported by this demo broker
             }
-            
-            # Add SL/TP if provided
-            if sl:
+
+            # Add SL/TP if provided (after validation)
+            if sl is not None:
                 request["sl"] = sl
-            if tp:
+            if tp is not None:
                 request["tp"] = tp
-                
+
             # Send order
             result = mt5.order_send(request)
-            
+
             if result is None:
                 error = mt5.last_error()
                 logger.error(f"Order send failed: {error}")
                 return None
-                
+
             if result.retcode != mt5.TRADE_RETCODE_DONE:
-                logger.error(f"Order failed: {result.comment}")
+                logger.error(f"Order failed: {result.comment} (retcode={result.retcode})")
                 return None
-                
+
             logger.info(f"Order sent: {order_type} {volume} {symbol} @ {price}, Ticket: {result.order}")
             return {
                 "ticket": result.order,
@@ -361,7 +385,7 @@ class MT5Connector:
                 "price": result.price,
                 "comment": result.comment
             }
-            
+
         except Exception as e:
             logger.error(f"Failed to send order: {e}")
             return None
@@ -374,6 +398,22 @@ class MT5Connector:
                 logger.error(f"Position {ticket} not found for SL modification")
                 return False
             pos = position[0]
+            # Get symbol's minimum stop level
+            symbol_info = mt5.symbol_info(pos.symbol)
+            if symbol_info:
+                # stop_level is in points, convert to price
+                point = symbol_info.point
+                min_stop_distance = symbol_info.trade_stops_level * point
+                current_price = pos.price_current
+                # Ensure SL is far enough from current price
+                if pos.type == 0:  # BUY
+                    # SL must be at least min_stop_distance below current price
+                    if new_sl > current_price - min_stop_distance:
+                        new_sl = round(current_price - min_stop_distance, symbol_info.digits)
+                else:  # SELL
+                    # SL must be at least min_stop_distance above current price
+                    if new_sl < current_price + min_stop_distance:
+                        new_sl = round(current_price + min_stop_distance, symbol_info.digits)
             request = {
                 "action": mt5.TRADE_ACTION_SLTP,
                 "position": ticket,
@@ -386,7 +426,9 @@ class MT5Connector:
                 logger.info(f"SL modified for {ticket}: new SL={new_sl}")
                 return True
             else:
-                logger.error(f"Failed to modify SL: {result.retcode if result else 'no result'}")
+                retcode = result.retcode if result else 'no result'
+                comment = result.comment if result else ''
+                logger.error(f"Failed to modify SL: retcode={retcode} comment={comment}")
                 return False
         except Exception as e:
             logger.error(f"Error modifying SL: {e}")
