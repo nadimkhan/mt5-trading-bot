@@ -532,7 +532,18 @@ class TradingEngine:
         """Fast loop - Check M5 for entry signals"""
         # Reset daily stats if new day
         self._check_daily_reset()
-        
+
+        # Hot-reload strategy configs from disk (in case JSON was edited manually)
+        if self.strategy_manager:
+            try:
+                from strategies.strategy_config import load_configs
+                configs = load_configs()
+                for name, strategy in self.strategy_manager.strategies.items():
+                    if hasattr(strategy, 'reload_config'):
+                        strategy.reload_config(configs)
+            except Exception as e:
+                pass  # Silent fail - non-critical
+
         # Check risk limits
         if self._check_risk_limits():
             self.status = "RISK_LIMIT_REACHED"

@@ -24,6 +24,9 @@ class DateTimeEncoder(json.JSONEncoder):
 
 app = Flask(__name__, template_folder='templates')
 app.config['SECRET_KEY'] = 'mt5-trading-bot-secret'
+# Disable Jinja2 template cache so HTML changes appear on browser refresh
+app.config['TEMPLATES_AUTO_RELOAD'] = True
+app.jinja_env.auto_reload = True
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 engine = None
@@ -111,9 +114,22 @@ def db_get_analytics():
             'open_trades_count': open_trades, 'win_rate': round(win_rate, 1), 'total_pnl': round(total_pnl, 2)}
 
 
+@app.after_request
+def add_no_cache_headers(response):
+    """Prevent caching of dashboard files so UI changes appear without restart"""
+    if response.content_type and ('html' in response.content_type or 'css' in response.content_type or 'javascript' in response.content_type):
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+    return response
+
+
 @app.route('/')
 def index():
-    return render_template('dashboard.html')
+    response = app.make_response(render_template('dashboard.html'))
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    return response
 
 
 @app.route('/api/status')
@@ -291,15 +307,16 @@ def api_update_strategy_config():
     success, msg = update_strategy_param(configs, strategy, param, value)
     if success:
         save_configs(configs)
-        # Apply to engine if running
+        # Apply to engine if running (no restart needed)
         if engine and hasattr(engine, 'strategy_manager'):
             strategy_obj = engine.strategy_manager.strategies.get(strategy)
             if strategy_obj and hasattr(strategy_obj, 'reload_config'):
                 strategy_obj.reload_config(configs)
-            # If timeframe changed, apply to engine
+            # If timeframe changed, apply to engine immediately
             if param in ['trend', 'entry', 'confirm', 'scalp_interval', 'trend_interval']:
                 if hasattr(engine, '_apply_strategy_timeframes'):
                     engine._apply_strategy_timeframes()
+                    logger.info(f"Timeframes applied: {engine.timeframes}")
         return jsonify({"status": "ok", "strategy": strategy, "param": param, "value": value})
     return jsonify({"error": msg}), 400
 
@@ -312,6 +329,32 @@ def api_reset_strategies():
     if configs:
         return jsonify({"status": "ok", "configs": configs})
     return jsonify({"error": "Failed to reset"}), 500
+
+
+@app.route('/api/strategies/reload', methods=['POST'])
+def api_reload_strategies():
+    """Hot-reload strategy configs into the running engine (no restart needed)"""
+    global engine
+    try:
+        from strategies.strategy_config import load_configs
+        configs = load_configs()
+        if not engine or not hasattr(engine, 'strategy_manager'):
+            return jsonify({"error": "Engine not running"}), 400
+        # Reload each strategy
+        for name, strategy in engine.strategy_manager.strategies.items():
+            if hasattr(strategy, 'reload_config'):
+                strategy.reload_config(configs)
+        # Apply timeframes
+        if hasattr(engine, '_apply_strategy_timeframes'):
+            engine._apply_strategy_timeframes()
+        return jsonify({
+            "status": "ok",
+            "active_strategy": engine.strategy_manager.active_strategy,
+            "timeframes": engine.timeframes
+        })
+    except Exception as e:
+        logger.error(f"Reload failed: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route('/api/strategies/set', methods=['POST'])
