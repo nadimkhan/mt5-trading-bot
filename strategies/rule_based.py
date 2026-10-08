@@ -359,6 +359,12 @@ class StrategyManager:
             "scalp": ScalpStrategy(config, timeframes=tfs),
             "trend": TrendFollowingStrategy(config, timeframes=tfs)
         }
+        # Try to load regime-aware strategy (pre-researched parameters per market regime)
+        try:
+            from strategies.regime_aware import RegimeAwareStrategy
+            self.strategies["regime"] = RegimeAwareStrategy(config)
+        except Exception as e:
+            logger.warning(f"Regime strategy not available: {e}")
         # Try to load ML strategy (genetic algorithm discovered parameters)
         try:
             from strategies.ml_strategy import MLStrategy

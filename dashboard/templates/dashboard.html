@@ -305,6 +305,7 @@
                 <div class="strategy-selector">
                     <button class="strategy-btn active" id="btn-scalp" data-strategy="scalp"><span class="strategy-name">Scalp</span><span class="strategy-desc">H4+M15+M1</span></button>
                     <button class="strategy-btn" id="btn-trend" data-strategy="trend"><span class="strategy-name">Trend</span><span class="strategy-desc">EMA Cross</span></button>
+                    <button class="strategy-btn" id="btn-regime" data-strategy="regime"><span class="strategy-name">Regime</span><span class="strategy-desc">BULL/BEAR/SIDE</span></button>
                     <button class="strategy-btn" id="btn-ml" data-strategy="ml"><span class="strategy-name">ML</span><span class="strategy-desc">Genetic</span></button>
                 </div>
                 <button class="sidebar-btn" id="btn-config">Configure Strategies</button>
@@ -426,6 +427,7 @@
         });
         document.getElementById('btn-scalp').addEventListener('click', function() { setStrategy('scalp'); });
         document.getElementById('btn-trend').addEventListener('click', function() { setStrategy('trend'); });
+        document.getElementById('btn-regime').addEventListener('click', function() { setStrategy('regime'); });
         document.getElementById('btn-ml').addEventListener('click', function() { setStrategy('ml'); });
         document.getElementById('btn-ml-search').addEventListener('click', runMLSearch);
         document.getElementById('modal-ok').addEventListener('click', closeModal);

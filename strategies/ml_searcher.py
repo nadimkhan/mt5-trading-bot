@@ -823,10 +823,10 @@ class GeneticSearcher:
         genome.total_trades = total_trades
         genome.wins = wins
         genome.max_drawdown = worst_dd
-        # Recalculate PF across all symbols
+        # Recalculate PF across all symbols (store as percentage to match _score_genome)
         if total_trades > 0:
-            win_rate = wins / total_trades
-            genome.win_rate = win_rate
+            win_rate = wins / total_trades * 100
+            genome.win_rate = round(win_rate, 1)
         return genome
 
     def _tournament(self, population, k=3):
