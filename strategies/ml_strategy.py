@@ -85,6 +85,16 @@ class MLStrategy:
         # Volume
         volumes = entry_data.get('tick_volumes', entry_data.get('volumes', []))
         vol_sma = self._volume_sma(volumes, 20) if volumes else [None] * len(closes)
+        # Ichimoku Cloud
+        opens = entry_data.get('opens', closes)  # fallback if no opens
+        ich_tenkan, ich_kijun, ich_senkou_a, ich_senkou_b, ich_chikou = self._ichimoku(
+            highs, lows, closes,
+            self.genome.ichimoku_tenkan, self.genome.ichimoku_kijun, self.genome.ichimoku_senkou_b
+        )
+        # Heikin Ashi
+        ha_o, ha_h, ha_l, ha_c = self._heikin_ashi(opens, highs, lows, closes)
+        ha_ema_fast = self._ema(ha_c, self.genome.ha_ema_fast) if ha_c and ha_c[0] is not None else [None] * len(closes)
+        ha_ema_slow = self._ema(ha_c, self.genome.ha_ema_slow) if ha_c and ha_c[0] is not None else [None] * len(closes)
 
         i = len(closes) - 1
         if i < 1 or ema_fast[i] is None or ema_slow[i] is None or rsi[i] is None or atr[i] is None:
@@ -157,6 +167,30 @@ class MLStrategy:
             elif current_price >= bb_upper[i] and current_rsi > 65:
                 short_signal = True
                 signal_reasons.append("BB-bounce")
+        # 5. Ichimoku cloud breakout
+        elif self.genome.use_ichimoku_breakout and vol_ok:
+            if (ich_tenkan[i] is not None and ich_kijun[i] is not None
+                and ich_senkou_a[i] is not None and ich_senkou_b[i] is not None):
+                cloud_top = max(ich_senkou_a[i], ich_senkou_b[i])
+                cloud_bottom = min(ich_senkou_a[i], ich_senkou_b[i])
+                if (ich_tenkan[i] > ich_kijun[i] and current_price > cloud_top
+                    and current_price > ich_tenkan[i]):
+                    long_signal = True
+                    signal_reasons.append("ICH-breakout")
+                elif (ich_tenkan[i] < ich_kijun[i] and current_price < cloud_bottom
+                      and current_price < ich_tenkan[i]):
+                    short_signal = True
+                    signal_reasons.append("ICH-breakout")
+        # 6. Heikin Ashi trend
+        elif self.genome.use_heikin_ashi and vol_ok and i > 0:
+            if (ha_ema_fast[i] is not None and ha_ema_slow[i] is not None
+                and ha_ema_fast[i-1] is not None and ha_ema_slow[i-1] is not None):
+                if ha_ema_fast[i-1] <= ha_ema_slow[i-1] and ha_ema_fast[i] > ha_ema_slow[i]:
+                    long_signal = True
+                    signal_reasons.append("HA-cross")
+                elif ha_ema_fast[i-1] >= ha_ema_slow[i-1] and ha_ema_fast[i] < ha_ema_slow[i]:
+                    short_signal = True
+                    signal_reasons.append("HA-cross")
 
         if long_signal:
             sl = current_price - current_atr * self.genome.atr_sl_multiplier
@@ -278,3 +312,46 @@ class MLStrategy:
         for i in range(period - 1, len(volumes)):
             result[i] = sum(volumes[i - period + 1:i + 1]) / period
         return result
+
+    def _ichimoku(self, highs, lows, closes, tenkan=9, kijun=26, senkou_b=52):
+        """Ichimoku Cloud"""
+        n = len(highs)
+        r_tenkan = [None] * n
+        r_kijun = [None] * n
+        r_senkou_a = [None] * n
+        r_senkou_b = [None] * n
+        r_chikou = [None] * n
+        for i in range(n):
+            if i >= tenkan - 1:
+                r_tenkan[i] = (max(highs[i - tenkan + 1:i + 1]) + min(lows[i - tenkan + 1:i + 1])) / 2
+            if i >= kijun - 1:
+                r_kijun[i] = (max(highs[i - kijun + 1:i + 1]) + min(lows[i - kijun + 1:i + 1])) / 2
+            if i >= kijun - 1 and r_tenkan[i] is not None and r_kijun[i] is not None:
+                if i + 26 < n:
+                    r_senkou_a[i + 26] = (r_tenkan[i] + r_kijun[i]) / 2
+            if i >= senkou_b - 1:
+                if i + 26 < n:
+                    r_senkou_b[i + 26] = (max(highs[i - senkou_b + 1:i + 1]) + min(lows[i - senkou_b + 1:i + 1])) / 2
+            if i - 26 >= 0:
+                r_chikou[i - 26] = closes[i]
+        return r_tenkan, r_kijun, r_senkou_a, r_senkou_b, r_chikou
+
+    def _heikin_ashi(self, opens, highs, lows, closes):
+        """Heikin Ashi candles"""
+        n = len(closes)
+        if n == 0:
+            return [], [], [], []
+        ha_o = [None] * n
+        ha_h = [None] * n
+        ha_l = [None] * n
+        ha_c = [None] * n
+        ha_c[0] = (opens[0] + highs[0] + lows[0] + closes[0]) / 4
+        ha_o[0] = (opens[0] + closes[0]) / 2
+        ha_h[0] = highs[0]
+        ha_l[0] = lows[0]
+        for i in range(1, n):
+            ha_c[i] = (opens[i] + highs[i] + lows[i] + closes[i]) / 4
+            ha_o[i] = (ha_o[i-1] + ha_c[i-1]) / 2
+            ha_h[i] = max(highs[i], ha_o[i], ha_c[i])
+            ha_l[i] = min(lows[i], ha_o[i], ha_c[i])
+        return ha_o, ha_h, ha_l, ha_c

@@ -62,6 +62,15 @@ class StrategyGenome:
     use_ema_cross: bool = True
     use_macd_cross: bool = True
     use_bb_bounce: bool = False
+    use_ichimoku_breakout: bool = False
+    use_heikin_ashi: bool = False
+    # Ichimoku params
+    ichimoku_tenkan: int = 9
+    ichimoku_kijun: int = 26
+    ichimoku_senkou_b: int = 52
+    # Heikin Ashi smoothing
+    ha_ema_fast: int = 9
+    ha_ema_slow: int = 21
     # Score (filled by backtester)
     profit_factor: float = 0.0
     total_trades: int = 0
@@ -105,8 +114,22 @@ class StrategyGenome:
             return False
         if self.min_atr_pips < 0 or self.min_atr_pips > 50:
             return False
+        # Ichimoku constraints
+        if self.ichimoku_tenkan < 5 or self.ichimoku_tenkan > 30:
+            return False
+        if self.ichimoku_kijun < 15 or self.ichimoku_kijun > 60:
+            return False
+        if self.ichimoku_senkou_b < 30 or self.ichimoku_senkou_b > 120:
+            return False
+        if self.ichimoku_tenkan >= self.ichimoku_kijun:
+            return False
+        if self.ichimoku_kijun >= self.ichimoku_senkou_b:
+            return False
+        if self.ha_ema_fast >= self.ha_ema_slow:
+            return False
         # Must enable at least one entry signal
-        if not (self.use_ema_cross or self.use_macd_cross or self.use_bb_bounce):
+        if not (self.use_ema_cross or self.use_macd_cross or self.use_bb_bounce
+                or self.use_ichimoku_breakout or self.use_heikin_ashi):
             return False
         if self.max_spread_pips < 0.1 or self.max_spread_pips > 50:
             return False
@@ -172,10 +195,19 @@ class GeneticSearcher:
             min_adx=round(random.uniform(15, 35), 1),
             min_atr_pips=round(random.uniform(3.0, 12.0), 1),
             max_spread_pips=round(random.uniform(1.0, 10.0), 1),
-            # Strategy selection
-            use_ema_cross=random.choice([True, False]),
-            use_macd_cross=random.choice([True, False]),
-            use_bb_bounce=random.choice([True, False]),
+            # Strategy selection - bias toward at least one advanced indicator
+            use_ema_cross=random.choice([True, True, False]),  # 2/3 chance
+            use_macd_cross=random.choice([True, True, False]),
+            use_bb_bounce=random.choice([True, False, False]),  # 1/3 chance
+            use_ichimoku_breakout=random.choice([True, False, False]),  # 1/3 chance
+            use_heikin_ashi=random.choice([True, False, False]),  # 1/3 chance
+            # Ichimoku
+            ichimoku_tenkan=random.choice([7, 9, 12]),
+            ichimoku_kijun=random.choice([20, 26, 30]),
+            ichimoku_senkou_b=random.choice([42, 52, 60]),
+            # Heikin Ashi
+            ha_ema_fast=random.choice([5, 9, 12]),
+            ha_ema_slow=random.choice([18, 21, 26]),
             generation=generation
         )
         if not g.is_valid():
@@ -214,6 +246,15 @@ class GeneticSearcher:
             use_ema_cross=random.random() < 0.1 or genome.use_ema_cross,
             use_macd_cross=random.random() < 0.1 or genome.use_macd_cross,
             use_bb_bounce=random.random() < 0.1 or genome.use_bb_bounce,
+            use_ichimoku_breakout=random.random() < 0.1 or genome.use_ichimoku_breakout,
+            use_heikin_ashi=random.random() < 0.1 or genome.use_heikin_ashi,
+            # Ichimoku
+            ichimoku_tenkan=genome.ichimoku_tenkan,
+            ichimoku_kijun=genome.ichimoku_kijun,
+            ichimoku_senkou_b=genome.ichimoku_senkou_b,
+            # Heikin Ashi
+            ha_ema_fast=genome.ha_ema_fast,
+            ha_ema_slow=genome.ha_ema_slow,
             generation=generation
         )
         if not new.is_valid():
@@ -252,6 +293,15 @@ class GeneticSearcher:
             use_ema_cross=random.choice([parent_a.use_ema_cross, parent_b.use_ema_cross]),
             use_macd_cross=random.choice([parent_a.use_macd_cross, parent_b.use_macd_cross]),
             use_bb_bounce=random.choice([parent_a.use_bb_bounce, parent_b.use_bb_bounce]),
+            use_ichimoku_breakout=random.choice([parent_a.use_ichimoku_breakout, parent_b.use_ichimoku_breakout]),
+            use_heikin_ashi=random.choice([parent_a.use_heikin_ashi, parent_b.use_heikin_ashi]),
+            # Ichimoku
+            ichimoku_tenkan=random.choice([parent_a.ichimoku_tenkan, parent_b.ichimoku_tenkan]),
+            ichimoku_kijun=random.choice([parent_a.ichimoku_kijun, parent_b.ichimoku_kijun]),
+            ichimoku_senkou_b=random.choice([parent_a.ichimoku_senkou_b, parent_b.ichimoku_senkou_b]),
+            # Heikin Ashi
+            ha_ema_fast=random.choice([parent_a.ha_ema_fast, parent_b.ha_ema_fast]),
+            ha_ema_slow=random.choice([parent_a.ha_ema_slow, parent_b.ha_ema_slow]),
             generation=generation
         )
         if not child.is_valid():
@@ -265,6 +315,7 @@ class GeneticSearcher:
             if len(bars) < 100:
                 return genome
             closes = [b['close'] for b in bars]
+            opens = [b.get('open', b['close']) for b in bars]  # fallback to close if no open
             highs = [b['high'] for b in bars]
             lows = [b['low'] for b in bars]
 
@@ -286,6 +337,15 @@ class GeneticSearcher:
             else:
                 volumes = [1] * len(bars)  # no volume data → pass filter trivially
             vol_sma = self._volume_sma(volumes, 20)
+            # Ichimoku Cloud
+            ich_tenkan, ich_kijun, ich_senkou_a, ich_senkou_b, ich_chikou = self._ichimoku(
+                highs, lows, closes,
+                genome.ichimoku_tenkan, genome.ichimoku_kijun, genome.ichimoku_senkou_b
+            )
+            # Heikin Ashi (only compute closes; use HA close for trend detection)
+            ha_o, ha_h, ha_l, ha_c = self._heikin_ashi(opens, highs, lows, closes)
+            ha_ema_fast = self._ema(ha_c, genome.ha_ema_fast) if ha_c and ha_c[0] is not None else [None] * len(closes)
+            ha_ema_slow = self._ema(ha_c, genome.ha_ema_slow) if ha_c and ha_c[0] is not None else [None] * len(closes)
 
             # Determine pip size and dollar value per pip based on symbol
             pip_size = 0.0001
@@ -389,6 +449,30 @@ class GeneticSearcher:
                                 long_signal = True
                             if bb_bear and macd_line[i] < macd_signal[i] and rsi[i] > 65:
                                 short_signal = True
+                        # Ichimoku cloud breakout (above cloud = buy, below = sell)
+                        elif genome.use_ichimoku_breakout and vol_ok and rsi_ok:
+                            # Need Tenkan, Kijun, and both Senkou values
+                            if (ich_tenkan[i] is not None and ich_kijun[i] is not None
+                                and ich_senkou_a[i] is not None and ich_senkou_b[i] is not None):
+                                cloud_top = max(ich_senkou_a[i], ich_senkou_b[i])
+                                cloud_bottom = min(ich_senkou_a[i], ich_senkou_b[i])
+                                # Tenkan above Kijun AND price above cloud = buy
+                                if (ich_tenkan[i] > ich_kijun[i] and closes[i] > cloud_top
+                                    and closes[i] > ich_tenkan[i]):
+                                    long_signal = True
+                                # Tenkan below Kijun AND price below cloud = sell
+                                elif (ich_tenkan[i] < ich_kijun[i] and closes[i] < cloud_bottom
+                                      and closes[i] < ich_tenkan[i]):
+                                    short_signal = True
+                        # Heikin Ashi trend + EMA crossover
+                        elif genome.use_heikin_ashi and vol_ok and rsi_ok:
+                            if (ha_ema_fast[i] is not None and ha_ema_slow[i] is not None
+                                and ha_ema_fast[i-1] is not None and ha_ema_slow[i-1] is not None):
+                                # HA EMA crossover (on smoothed HA candles)
+                                if ha_ema_fast[i-1] <= ha_ema_slow[i-1] and ha_ema_fast[i] > ha_ema_slow[i]:
+                                    long_signal = True
+                                elif ha_ema_fast[i-1] >= ha_ema_slow[i-1] and ha_ema_fast[i] < ha_ema_slow[i]:
+                                    short_signal = True
 
                         if long_signal:
                             in_trade = True
@@ -657,6 +741,71 @@ class GeneticSearcher:
             result[i] = sum(volumes[i - period + 1:i + 1]) / period
         return result
 
+    def _ichimoku(self, highs, lows, closes, tenkan=9, kijun=26, senkou_b=52):
+        """Ichimoku Cloud: returns (tenkan, kijun, senkou_a, senkou_b, chikou).
+        All lists same length as input; first values are None until enough data."""
+        n = len(highs)
+        result_tenkan = [None] * n
+        result_kijun = [None] * n
+        result_senkou_a = [None] * n
+        result_senkou_b = [None] * n
+        result_chikou = [None] * n
+        for i in range(n):
+            # Tenkan-sen (Conversion): highest high + lowest low over past `tenkan` periods, / 2
+            if i >= tenkan - 1:
+                hh = max(highs[i - tenkan + 1:i + 1])
+                ll = min(lows[i - tenkan + 1:i + 1])
+                result_tenkan[i] = (hh + ll) / 2
+            # Kijun-sen (Base): same but for `kijun` periods
+            if i >= kijun - 1:
+                hh = max(highs[i - kijun + 1:i + 1])
+                ll = min(lows[i - kijun + 1:i + 1])
+                result_kijun[i] = (hh + ll) / 2
+            # Senkou Span A: (Tenkan + Kijun) / 2, plotted 26 periods ahead
+            if i >= kijun - 1 and result_tenkan[i] is not None and result_kijun[i] is not None:
+                sa = (result_tenkan[i] + result_kijun[i]) / 2
+                # Place it 26 periods in the future
+                if i + 26 < n:
+                    result_senkou_a[i + 26] = sa
+            # Senkou Span B: (highest high + lowest low) over past 52, / 2, plotted 26 ahead
+            if i >= senkou_b - 1:
+                hh = max(highs[i - senkou_b + 1:i + 1])
+                ll = min(lows[i - senkou_b + 1:i + 1])
+                sb = (hh + ll) / 2
+                if i + 26 < n:
+                    result_senkou_b[i + 26] = sb
+            # Chikou Span: current close plotted 26 periods back
+            if i - 26 >= 0:
+                result_chikou[i - 26] = closes[i]
+        return result_tenkan, result_kijun, result_senkou_a, result_senkou_b, result_chikou
+
+    def _heikin_ashi(self, opens, highs, lows, closes):
+        """Heikin Ashi candles: smoother price action.
+        Returns (ha_open, ha_high, ha_low, ha_close) - all same length as input."""
+        n = len(closes)
+        if n == 0:
+            return [], [], [], []
+        ha_open = [None] * n
+        ha_high = [None] * n
+        ha_low = [None] * n
+        ha_close = [None] * n
+        # First bar: use real open/close
+        ha_close[0] = (opens[0] + highs[0] + lows[0] + closes[0]) / 4
+        ha_open[0] = (opens[0] + closes[0]) / 2
+        ha_high[0] = highs[0]
+        ha_low[0] = lows[0]
+        for i in range(1, n):
+            ha_close[i] = (opens[i] + highs[i] + lows[i] + closes[i]) / 4
+            ha_open[i] = (ha_open[i-1] + ha_close[i-1]) / 2
+            ha_high[i] = max(highs[i], ha_open[i], ha_close[i])
+            ha_low[i] = min(lows[i], ha_open[i], ha_close[i])
+        return ha_open, ha_high, ha_low, ha_close
+
+    def _atr_pips(self, highs, lows, closes, period=14, pip_size=0.0001):
+        """ATR in pips (for the per-symbol ATR floor)"""
+        atr_raw = self._atr(highs, lows, closes, period)
+        return [a / pip_size if a is not None else None for a in atr_raw]
+
     def _sma(self, prices, period):
         """Simple moving average"""
         if len(prices) < period:
@@ -799,7 +948,10 @@ class GeneticSearcher:
                 'macd_fast', 'macd_slow', 'macd_signal', 'use_macd_filter',
                 'use_volume_filter', 'volume_min_multiplier',
                 'atr_sl_multiplier', 'atr_tp_multiplier', 'min_adx', 'min_atr_pips',
-                'max_spread_pips', 'use_ema_cross', 'use_macd_cross', 'use_bb_bounce'
+                'max_spread_pips', 'use_ema_cross', 'use_macd_cross', 'use_bb_bounce',
+                'use_ichimoku_breakout', 'use_heikin_ashi',
+                'ichimoku_tenkan', 'ichimoku_kijun', 'ichimoku_senkou_b',
+                'ha_ema_fast', 'ha_ema_slow'
             ]})
             oos_genome = self._score_genome_multi(oos_genome, oos)
             # Reject if:
@@ -907,6 +1059,9 @@ class GeneticSearcher:
                     atr_sl_multiplier REAL, atr_tp_multiplier REAL,
                     min_adx REAL, min_atr_pips REAL, max_spread_pips REAL,
                     use_ema_cross INTEGER, use_macd_cross INTEGER, use_bb_bounce INTEGER,
+                    use_ichimoku_breakout INTEGER, use_heikin_ashi INTEGER,
+                    ichimoku_tenkan INTEGER, ichimoku_kijun INTEGER, ichimoku_senkou_b INTEGER,
+                    ha_ema_fast INTEGER, ha_ema_slow INTEGER,
                     profit_factor REAL, total_trades INTEGER,
                     win_rate REAL, max_drawdown REAL, sharpe REAL,
                     generation INTEGER, validated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -921,8 +1076,11 @@ class GeneticSearcher:
                      use_volume_filter, volume_min_multiplier,
                      atr_sl_multiplier, atr_tp_multiplier, min_adx, min_atr_pips, max_spread_pips,
                      use_ema_cross, use_macd_cross, use_bb_bounce,
+                     use_ichimoku_breakout, use_heikin_ashi,
+                     ichimoku_tenkan, ichimoku_kijun, ichimoku_senkou_b,
+                     ha_ema_fast, ha_ema_slow,
                      profit_factor, total_trades, win_rate, max_drawdown, sharpe, generation)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (g.id, symbol, g.ema_fast, g.ema_slow, g.rsi_period,
                       g.rsi_overbought, g.rsi_oversold,
                       g.bb_period, g.bb_stddev, int(g.use_bb_filter),
@@ -930,6 +1088,9 @@ class GeneticSearcher:
                       int(g.use_volume_filter), g.volume_min_multiplier,
                       g.atr_sl_multiplier, g.atr_tp_multiplier, g.min_adx, g.min_atr_pips, g.max_spread_pips,
                       int(g.use_ema_cross), int(g.use_macd_cross), int(g.use_bb_bounce),
+                      int(g.use_ichimoku_breakout), int(g.use_heikin_ashi),
+                      g.ichimoku_tenkan, g.ichimoku_kijun, g.ichimoku_senkou_b,
+                      g.ha_ema_fast, g.ha_ema_slow,
                       g.profit_factor, g.total_trades, g.win_rate,
                       g.max_drawdown, g.sharpe, g.generation))
             conn.commit()
@@ -980,6 +1141,13 @@ class GeneticSearcher:
                 use_ema_cross=bool(d.get('use_ema_cross', 1)),
                 use_macd_cross=bool(d.get('use_macd_cross', 1)),
                 use_bb_bounce=bool(d.get('use_bb_bounce', 0)),
+                use_ichimoku_breakout=bool(d.get('use_ichimoku_breakout', 0)),
+                use_heikin_ashi=bool(d.get('use_heikin_ashi', 0)),
+                ichimoku_tenkan=d.get('ichimoku_tenkan', 9),
+                ichimoku_kijun=d.get('ichimoku_kijun', 26),
+                ichimoku_senkou_b=d.get('ichimoku_senkou_b', 52),
+                ha_ema_fast=d.get('ha_ema_fast', 9),
+                ha_ema_slow=d.get('ha_ema_slow', 21),
                 profit_factor=d.get('profit_factor', 0),
                 total_trades=d.get('total_trades', 0),
                 win_rate=d.get('win_rate', 0),
