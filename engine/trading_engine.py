@@ -614,6 +614,30 @@ class TradingEngine:
             except Exception as e:
                 logger.error(f"Failed to update trend for {symbol}: {e}")
 
+    def _flatten_market_data(self, market_data: Dict, symbol: str) -> Dict:
+        """Flatten nested timeframe data into a single dict for strategy consumption.
+        The regime strategy expects top-level closes/highs/lows/volumes,
+        but the engine stores data as {M5: {closes:...}, M15: {closes:...}}.
+        This picks the best available timeframe and flattens it."""
+        flat = {}
+        # Use entry timeframe (M15 by default) as primary, fall back to others
+        primary_tf = self.timeframes.get("entry", "M15")
+        for tf in [primary_tf, "M15", "H1", "M5", "M1"]:
+            tf_data = market_data.get(tf, {})
+            if tf_data and isinstance(tf_data, dict):
+                if "closes" in tf_data and len(tf_data["closes"]) >= 20:
+                    flat["closes"] = tf_data["closes"]
+                    flat["highs"] = tf_data.get("highs", [])
+                    flat["lows"] = tf_data.get("lows", [])
+                    flat["volumes"] = tf_data.get("volumes", tf_data.get("tick_volumes", []))
+                    flat["_timeframe"] = tf
+                    break
+        # Pass through metadata
+        flat["trend_direction"] = market_data.get("trend_direction", "SIDEWAYS")
+        flat["has_position"] = market_data.get("has_position", False)
+        flat["symbol"] = symbol
+        return flat
+
     def _analyze_symbol_multitimeframe(self, symbol):
         """Analyze a symbol across multiple timeframes"""
         analysis = {}
@@ -742,23 +766,38 @@ class TradingEngine:
                     continue
                 logger.info(f"[DECISIONS] {symbol}: have market_data, TFs={list(market_data.keys())}")
 
-                # Check regime filter first
-                closes = market_data.get('closes', [])
-                highs = market_data.get('highs', [])
-                lows = market_data.get('lows', [])
+                # Check regime filter first - data is nested by timeframe
+                # Use the highest available timeframe (M15 or M5) for regime check
+                closes = []
+                highs = []
+                lows = []
+                for tf in ['M15', 'H1', 'M5', 'M1']:
+                    tf_data = market_data.get(tf, {})
+                    if tf_data and isinstance(tf_data, dict):
+                        closes = tf_data.get('closes', [])
+                        highs = tf_data.get('highs', [])
+                        lows = tf_data.get('lows', [])
+                        if len(closes) >= 20:
+                            break
+
                 if len(closes) >= 20 and len(highs) >= 20 and len(lows) >= 20:
                     regime = detect_market_regime(closes, highs, lows, closes)
                     if not is_tradeable_regime(regime, "trend"):
+                        logger.info(f"[DECISIONS] {symbol}: regime not tradeable")
                         continue
                 else:
-                    continue
-                
-                # Check session filter
-                if not self.session_filter.is_tradeable_time(symbol):
+                    logger.info(f"[DECISIONS] {symbol}: skip (no data in any TF)")
                     continue
 
-                # Get strategy signal
-                setup = self.strategy_manager.get_signal(market_data)
+                # Check session filter
+                if not self.session_filter.is_tradeable_time(symbol):
+                    logger.info(f"[DECISIONS] {symbol}: skip (not tradeable time)")
+                    continue
+
+                # Get strategy signal - flatten data for regime strategy
+                flat_data = self._flatten_market_data(market_data, symbol)
+                setup = self.strategy_manager.get_signal(flat_data)
+                logger.info(f"[DECISIONS] {symbol}: strategy signal={setup.get('signal')}, reason={setup.get('reason', '')[:60]}")
 
                 # Log this attempt for dashboard visibility (every symbol, every loop)
                 setup_signal = setup.get("signal", "NONE")
