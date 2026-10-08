@@ -304,16 +304,20 @@ class TrendFollowingStrategy:
         self.win_streak_threshold = int(self._get_param("win_streak_threshold", 3))
 
     def check_setup(self, market_data: Dict) -> Dict:
-        """Check for EMA crossover setup"""
-        m15 = market_data.get('M15', {})
-        m5 = market_data.get('M5', {})
-        
-        if not m15 or not m5:
-            return {"signal": "HOLD", "confidence": 0, "reason": "No data"}
-        
-        m15_cross = m15.get("ema_cross", {})
-        m5_cross = m5.get("ema_cross", {})
-        
+        """Check for EMA crossover setup using configured timeframes"""
+        # Use configured timeframes: entry for primary signal, confirm for secondary
+        entry_tf = self.timeframes['entry']
+        confirm_tf = self.timeframes['confirm']
+
+        m_entry = market_data.get(entry_tf, {})
+        m_confirm = market_data.get(confirm_tf, {})
+
+        if not m_entry or not m_confirm:
+            return {"signal": "HOLD", "confidence": 0, "reason": f"No {entry_tf}/{confirm_tf} data"}
+
+        m15_cross = m_entry.get("ema_cross", {})
+        m5_cross = m_confirm.get("ema_cross", {})
+
         m15_bull = m15_cross.get("signal") == "BULLISH" if m15_cross else False
         m15_bear = m15_cross.get("signal") == "BEARISH" if m15_cross else False
         m5_bull = m5_cross.get("signal") == "BULLISH" if m5_cross else False
