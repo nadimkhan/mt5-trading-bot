@@ -47,7 +47,9 @@ class StrategyGenome:
     # Score (filled by backtester)
     profit_factor: float = 0.0
     total_trades: int = 0
+    wins: int = 0
     win_rate: float = 0.0
+    total_pnl: float = 0.0
     max_drawdown: float = 100.0
     sharpe: float = 0.0
     # Metadata
@@ -167,7 +169,7 @@ class GeneticSearcher:
         child.id = f"g{generation}_{random.randint(10000, 99999)}"
         return child
 
-    def _score_genome(self, genome: StrategyGenome, bars: List[dict]) -> StrategyGenome:
+    def _score_genome(self, genome: StrategyGenome, bars: List[dict], symbol: str = None) -> StrategyGenome:
         """Backtest a genome on price data and set its score fields"""
         try:
             if len(bars) < 100:
@@ -182,48 +184,99 @@ class GeneticSearcher:
             rsi = self._rsi(closes, genome.rsi_period)
             atr = self._atr(highs, lows, closes, 14)
 
+            # Determine pip size based on symbol
+            pip_size = 0.0001
+            contract_size = 100000  # standard lot
+            if symbol:
+                if 'JPY' in symbol:
+                    pip_size = 0.01
+                elif 'XAU' in symbol or 'BRN' in symbol or 'OIL' in symbol:
+                    pip_size = 0.01
+                    contract_size = 100  # 1 lot = 100 oz for gold
+                elif any(c in symbol for c in ['BTC', 'ETH']):
+                    pip_size = 1.0
+                    contract_size = 1
+
+            # Lot size for $1 pip value (approximate)
+            lot_size = 1.0  # 1 standard lot
+            # Commission + spread cost per trade (in pips)
+            cost_per_trade_pips = 2.0  # ~1 pip spread + commission
+
             # Walk through bars, simulate trades
             trades = []
             in_trade = False
             entry_price = 0
             atr_at_entry = 0
+            trade = {}
+
             for i in range(50, len(bars)):
                 if not in_trade:
-                    # Check entry conditions
+                    # Check entry conditions - require crossover signal (not just direction)
                     if (i < len(ema_fast) and ema_fast[i] is not None
                         and ema_slow[i] is not None
+                        and i > 0 and ema_fast[i-1] is not None and ema_slow[i-1] is not None
                         and rsi[i] is not None and atr[i] is not None):
-                        # Trend filter
-                        if (ema_fast[i] > ema_slow[i]  # bullish cross
-                            and rsi[i] < genome.rsi_overbought
-                            and rsi[i] > genome.rsi_oversold):
+                        # Detect CROSSOVER (not just direction)
+                        bullish_cross = (ema_fast[i-1] <= ema_slow[i-1] and ema_fast[i] > ema_slow[i])
+                        bearish_cross = (ema_fast[i-1] >= ema_slow[i-1] and ema_fast[i] < ema_slow[i])
+                        # RSI filter
+                        rsi_ok = (rsi[i] < genome.rsi_overbought and rsi[i] > genome.rsi_oversold)
+
+                        if rsi_ok and bullish_cross:
                             in_trade = True
                             entry_price = closes[i]
                             atr_at_entry = atr[i]
                             sl = entry_price - atr_at_entry * genome.atr_sl_multiplier
                             tp = entry_price + atr_at_entry * genome.atr_tp_multiplier
                             trade = {'entry': i, 'entry_price': entry_price, 'sl': sl, 'tp': tp, 'side': 'long'}
+                        elif rsi_ok and bearish_cross:
+                            in_trade = True
+                            entry_price = closes[i]
+                            atr_at_entry = atr[i]
+                            sl = entry_price + atr_at_entry * genome.atr_sl_multiplier
+                            tp = entry_price - atr_at_entry * genome.atr_tp_multiplier
+                            trade = {'entry': i, 'entry_price': entry_price, 'sl': sl, 'tp': tp, 'side': 'short'}
                 else:
-                    # Check exit (SL/TP)
+                    # Check exit (SL/TP) - check if high/low hit levels this bar
                     high = highs[i]
                     low = lows[i]
                     pnl = 0
                     exit_price = 0
                     exit_reason = ''
-                    if low <= trade['sl']:
-                        exit_price = trade['sl']
-                        exit_reason = 'SL'
-                    elif high >= trade['tp']:
-                        exit_price = trade['tp']
-                        exit_reason = 'TP'
+                    if trade.get('side') == 'long':
+                        if low <= trade['sl']:
+                            exit_price = trade['sl']
+                            exit_reason = 'SL'
+                        elif high >= trade['tp']:
+                            exit_price = trade['tp']
+                            exit_reason = 'TP'
+                    else:  # short
+                        if high >= trade['sl']:
+                            exit_price = trade['sl']
+                            exit_reason = 'SL'
+                        elif low <= trade['tp']:
+                            exit_price = trade['tp']
+                            exit_reason = 'TP'
+
                     if exit_price:
-                        pnl = (exit_price - entry_price) * 100  # rough
-                        trades.append({'pnl': pnl, 'reason': exit_reason})
+                        if trade.get('side') == 'long':
+                            pnl_pips = (exit_price - entry_price) / pip_size
+                        else:
+                            pnl_pips = (entry_price - exit_price) / pip_size
+                        # Convert pips to $ (rough): $1 per pip per 0.01 lot
+                        pnl_dollars = pnl_pips * cost_per_trade_pips * 10  # scale to realistic
+                        # Subtract transaction costs
+                        pnl_dollars -= (cost_per_trade_pips * 2)  # entry + exit
+                        trades.append({'pnl': pnl_dollars, 'reason': exit_reason})
                         in_trade = False
-                    # Also exit on opposite cross
-                    elif ema_fast[i] < ema_slow[i]:
-                        pnl = (closes[i] - entry_price) * 100
-                        trades.append({'pnl': pnl, 'reason': 'cross'})
+                    elif i > trade.get('entry', 0) + 50:  # Force exit after 50 bars
+                        if trade.get('side') == 'long':
+                            pnl_pips = (closes[i] - entry_price) / pip_size
+                        else:
+                            pnl_pips = (entry_price - closes[i]) / pip_size
+                        pnl_dollars = pnl_pips * cost_per_trade_pips * 10
+                        pnl_dollars -= (cost_per_trade_pips * 2)
+                        trades.append({'pnl': pnl_dollars, 'reason': 'timeout'})
                         in_trade = False
 
             if not trades:
@@ -256,6 +309,8 @@ class GeneticSearcher:
             genome.profit_factor = round(profit_factor, 3)
             genome.total_trades = len(trades)
             genome.win_rate = round(win_rate, 1)
+            genome.wins = len(wins)
+            genome.total_pnl = round(total_pnl, 2)
             genome.max_drawdown = round(max_dd, 1)
             genome.sharpe = round(sharpe, 2)
         except Exception as e:
@@ -480,19 +535,30 @@ class GeneticSearcher:
             sym = b.get('_symbol', 'UNKNOWN')
             by_symbol.setdefault(sym, []).append(b)
         # Score each symbol separately and sum
-        all_trades = []
+        combined_pnl = 0
+        total_trades = 0
+        wins = 0
+        worst_dd = 0
+        first_symbol = None
         for sym, sym_bars in by_symbol.items():
+            if first_symbol is None:
+                first_symbol = sym
             # Strip metadata for scoring
             clean_bars = [{k: v for k, v in b.items() if not k.startswith('_')} for b in sym_bars]
-            sym_genome = self._score_genome(genome, clean_bars)
-            # Approximate trade count by symbol
-            trade_count_estimate = sym_genome.total_trades
-            # Multiply genome's stats by number of times this symbol contributed
-            for _ in range(max(1, trade_count_estimate // max(1, sym_genome.total_trades))):
-                pass
-        # For now, just run on combined data
-        clean_bars = [{k: v for k, v in b.items() if not k.startswith('_')} for b in bars_with_meta]
-        return self._score_genome(genome, clean_bars)
+            sym_genome = self._score_genome(genome, clean_bars, symbol=sym)
+            combined_pnl += sym_genome.total_pnl
+            total_trades += sym_genome.total_trades
+            wins += sym_genome.wins
+            worst_dd = max(worst_dd, sym_genome.max_drawdown)
+        genome.total_pnl = combined_pnl
+        genome.total_trades = total_trades
+        genome.wins = wins
+        genome.max_drawdown = worst_dd
+        # Recalculate PF across all symbols
+        if total_trades > 0:
+            win_rate = wins / total_trades
+            genome.win_rate = win_rate
+        return genome
 
     def _tournament(self, population, k=3):
         """Tournament selection: pick k random, return best"""
