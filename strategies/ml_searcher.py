@@ -31,19 +31,37 @@ class StrategyGenome:
     A genome = a single set of strategy parameters.
     This is what the genetic algorithm evolves.
     """
-    # EMA periods
+    # EMA periods (for crossover)
     ema_fast: int = 9
     ema_slow: int = 21
     # RSI thresholds
     rsi_period: int = 14
     rsi_overbought: int = 70
     rsi_oversold: int = 30
+    # Bollinger Bands
+    bb_period: int = 20
+    bb_stddev: float = 2.0
+    use_bb_filter: bool = True  # Trade only at BB extremes
+    # MACD
+    macd_fast: int = 12
+    macd_slow: int = 26
+    macd_signal: int = 9
+    use_macd_filter: bool = True
+    # Volume filter
+    use_volume_filter: bool = True
+    volume_min_multiplier: float = 0.8  # Volume must be >= 80% of 20-bar avg
     # ATR-based stops
     atr_sl_multiplier: float = 2.0
     atr_tp_multiplier: float = 4.0
-    # Filters
-    min_adx: float = 20.0  # Minimum ADX to consider trending
+    # Trend strength
+    min_adx: float = 20.0
+    # Risk filters
+    min_atr_pips: float = 5.0  # Don't trade dead markets
     max_spread_pips: float = 5.0
+    # Signal logic toggle
+    use_ema_cross: bool = True
+    use_macd_cross: bool = True
+    use_bb_bounce: bool = False
     # Score (filled by backtester)
     profit_factor: float = 0.0
     total_trades: int = 0
@@ -74,6 +92,21 @@ class StrategyGenome:
         if self.rsi_overbought > 95 or self.rsi_oversold < 5:
             return False
         if self.min_adx < 0 or self.min_adx > 60:
+            return False
+        if self.bb_period < 5 or self.bb_period > 60:
+            return False
+        if self.bb_stddev < 0.5 or self.bb_stddev > 4.0:
+            return False
+        if self.macd_fast >= self.macd_slow:
+            return False
+        if self.macd_slow < 5 or self.macd_slow > 60:
+            return False
+        if self.volume_min_multiplier < 0.1 or self.volume_min_multiplier > 3.0:
+            return False
+        if self.min_atr_pips < 0 or self.min_atr_pips > 50:
+            return False
+        # Must enable at least one entry signal
+        if not (self.use_ema_cross or self.use_macd_cross or self.use_bb_bounce):
             return False
         if self.max_spread_pips < 0.1 or self.max_spread_pips > 50:
             return False
@@ -120,10 +153,29 @@ class GeneticSearcher:
             rsi_period=random.choice([7, 14, 21]),
             rsi_overbought=random.randint(60, 85),
             rsi_oversold=random.randint(15, 40),
-            atr_sl_multiplier=round(random.uniform(1.0, 5.0), 1),
+            # Bollinger
+            bb_period=random.choice([15, 20, 25, 30]),
+            bb_stddev=round(random.uniform(1.5, 2.8), 1),
+            use_bb_filter=random.choice([True, False]),
+            # MACD
+            macd_fast=random.choice([8, 10, 12, 15]),
+            macd_slow=random.choice([20, 24, 26, 30]),
+            macd_signal=random.choice([7, 9, 12]),
+            use_macd_filter=random.choice([True, False]),
+            # Volume
+            use_volume_filter=random.choice([True, False]),
+            volume_min_multiplier=round(random.uniform(0.5, 1.2), 1),
+            # Stops
+            atr_sl_multiplier=round(random.uniform(1.0, 4.0), 1),
             atr_tp_multiplier=round(random.uniform(2.0, 8.0), 1),
-            min_adx=round(random.uniform(10, 35), 1),
+            # Trend
+            min_adx=round(random.uniform(15, 35), 1),
+            min_atr_pips=round(random.uniform(3.0, 12.0), 1),
             max_spread_pips=round(random.uniform(1.0, 10.0), 1),
+            # Strategy selection
+            use_ema_cross=random.choice([True, False]),
+            use_macd_cross=random.choice([True, False]),
+            use_bb_bounce=random.choice([True, False]),
             generation=generation
         )
         if not g.is_valid():
@@ -139,10 +191,29 @@ class GeneticSearcher:
             rsi_period=genome.rsi_period,
             rsi_overbought=genome.rsi_overbought + random.randint(-5, 5),
             rsi_oversold=genome.rsi_oversold + random.randint(-3, 3),
+            # Bollinger
+            bb_period=genome.bb_period,
+            bb_stddev=round(genome.bb_stddev + random.uniform(-0.2, 0.2), 1),
+            use_bb_filter=random.random() < 0.1 or genome.use_bb_filter,  # 10% chance to flip
+            # MACD
+            macd_fast=genome.macd_fast,
+            macd_slow=genome.macd_slow,
+            macd_signal=genome.macd_signal,
+            use_macd_filter=random.random() < 0.1 or genome.use_macd_filter,
+            # Volume
+            use_volume_filter=random.random() < 0.1 or genome.use_volume_filter,
+            volume_min_multiplier=round(genome.volume_min_multiplier + random.uniform(-0.1, 0.1), 1),
+            # Stops
             atr_sl_multiplier=round(genome.atr_sl_multiplier + random.uniform(-0.3, 0.3), 1),
             atr_tp_multiplier=round(genome.atr_tp_multiplier + random.uniform(-0.5, 0.5), 1),
+            # Trend
             min_adx=round(genome.min_adx + random.uniform(-3, 3), 1),
+            min_atr_pips=round(genome.min_atr_pips + random.uniform(-1, 1), 1),
             max_spread_pips=round(genome.max_spread_pips + random.uniform(-1, 1), 1),
+            # Strategy
+            use_ema_cross=random.random() < 0.1 or genome.use_ema_cross,
+            use_macd_cross=random.random() < 0.1 or genome.use_macd_cross,
+            use_bb_bounce=random.random() < 0.1 or genome.use_bb_bounce,
             generation=generation
         )
         if not new.is_valid():
@@ -158,10 +229,29 @@ class GeneticSearcher:
             rsi_period=random.choice([parent_a.rsi_period, parent_b.rsi_period]),
             rsi_overbought=random.choice([parent_a.rsi_overbought, parent_b.rsi_overbought]),
             rsi_oversold=random.choice([parent_a.rsi_oversold, parent_b.rsi_oversold]),
+            # Bollinger
+            bb_period=random.choice([parent_a.bb_period, parent_b.bb_period]),
+            bb_stddev=round((parent_a.bb_stddev + parent_b.bb_stddev) / 2, 1),
+            use_bb_filter=random.choice([parent_a.use_bb_filter, parent_b.use_bb_filter]),
+            # MACD
+            macd_fast=random.choice([parent_a.macd_fast, parent_b.macd_fast]),
+            macd_slow=random.choice([parent_a.macd_slow, parent_b.macd_slow]),
+            macd_signal=random.choice([parent_a.macd_signal, parent_b.macd_signal]),
+            use_macd_filter=random.choice([parent_a.use_macd_filter, parent_b.use_macd_filter]),
+            # Volume
+            use_volume_filter=random.choice([parent_a.use_volume_filter, parent_b.use_volume_filter]),
+            volume_min_multiplier=round((parent_a.volume_min_multiplier + parent_b.volume_min_multiplier) / 2, 1),
+            # Stops
             atr_sl_multiplier=round((parent_a.atr_sl_multiplier + parent_b.atr_sl_multiplier) / 2, 1),
             atr_tp_multiplier=round((parent_a.atr_tp_multiplier + parent_b.atr_tp_multiplier) / 2, 1),
+            # Trend
             min_adx=round((parent_a.min_adx + parent_b.min_adx) / 2, 1),
+            min_atr_pips=round((parent_a.min_atr_pips + parent_b.min_atr_pips) / 2, 1),
             max_spread_pips=round((parent_a.max_spread_pips + parent_b.max_spread_pips) / 2, 1),
+            # Strategy
+            use_ema_cross=random.choice([parent_a.use_ema_cross, parent_b.use_ema_cross]),
+            use_macd_cross=random.choice([parent_a.use_macd_cross, parent_b.use_macd_cross]),
+            use_bb_bounce=random.choice([parent_a.use_bb_bounce, parent_b.use_bb_bounce]),
             generation=generation
         )
         if not child.is_valid():
@@ -183,6 +273,19 @@ class GeneticSearcher:
             ema_slow = self._ema(closes, genome.ema_slow)
             rsi = self._rsi(closes, genome.rsi_period)
             atr = self._atr(highs, lows, closes, 14)
+            # Bollinger Bands
+            bb_upper, bb_middle, bb_lower = self._bollinger_bands(closes, genome.bb_period, genome.bb_stddev)
+            # MACD
+            macd_line, macd_signal, macd_hist = self._macd(closes, genome.macd_fast, genome.macd_slow, genome.macd_signal)
+            # Volume (use tick_volume if available, fallback to 1s)
+            bars_with_vol = [b for b in bars if 'tick_volume' in b or 'volume' in b]
+            if bars_with_vol and 'tick_volume' in bars_with_vol[0]:
+                volumes = [b.get('tick_volume', 1) for b in bars]
+            elif bars_with_vol and 'volume' in bars_with_vol[0]:
+                volumes = [b.get('volume', 1) for b in bars]
+            else:
+                volumes = [1] * len(bars)  # no volume data → pass filter trivially
+            vol_sma = self._volume_sma(volumes, 20)
 
             # Determine pip size and dollar value per pip based on symbol
             pip_size = 0.0001
@@ -219,27 +322,82 @@ class GeneticSearcher:
 
             for i in range(50, len(bars)):
                 if not in_trade:
-                    # Check entry conditions - require crossover signal (not just direction)
+                    # Check entry conditions
                     if (i < len(ema_fast) and ema_fast[i] is not None
                         and ema_slow[i] is not None
                         and i > 0 and ema_fast[i-1] is not None and ema_slow[i-1] is not None
-                        and rsi[i] is not None and atr[i] is not None):
-                        # Detect CROSSOVER (not just direction)
-                        bullish_cross = (ema_fast[i-1] <= ema_slow[i-1] and ema_fast[i] > ema_slow[i])
-                        bearish_cross = (ema_fast[i-1] >= ema_slow[i-1] and ema_fast[i] < ema_slow[i])
-                        # RSI filter
-                        rsi_ok = (rsi[i] < genome.rsi_overbought and rsi[i] > genome.rsi_oversold)
-                        # ADX filter: only trade when market is trending (avoids ranging/choppy)
-                        adx_strong = adx_vals[i] is not None and adx_vals[i] >= 20
+                        and rsi[i] is not None and atr[i] is not None
+                        and bb_lower[i] is not None and bb_upper[i] is not None
+                        and macd_line[i] is not None and macd_signal[i] is not None
+                        and macd_line[i-1] is not None and macd_signal[i-1] is not None
+                        and adx_vals[i] is not None):
 
-                        if rsi_ok and adx_strong and bullish_cross:
+                        # ATR floor: don't trade dead markets
+                        atr_pips = atr[i] / pip_size
+                        if atr_pips < genome.min_atr_pips:
+                            continue
+
+                        # 1. EMA crossover detection
+                        bullish_ema = (ema_fast[i-1] <= ema_slow[i-1] and ema_fast[i] > ema_slow[i])
+                        bearish_ema = (ema_fast[i-1] >= ema_slow[i-1] and ema_fast[i] < ema_slow[i])
+
+                        # 2. MACD confirmation
+                        macd_bull = (macd_line[i-1] <= macd_signal[i-1] and macd_line[i] > macd_signal[i])
+                        macd_bear = (macd_line[i-1] >= macd_signal[i-1] and macd_line[i] < macd_signal[i])
+
+                        # 3. Bollinger band extremes
+                        bb_bull = closes[i] <= bb_lower[i]   # touched/under lower band
+                        bb_bear = closes[i] >= bb_upper[i]   # touched/over upper band
+
+                        # 4. Volume filter
+                        vol_ok = True
+                        if genome.use_volume_filter and vol_sma[i] is not None and vol_sma[i] > 0:
+                            vol_ok = volumes[i] >= vol_sma[i] * genome.volume_min_multiplier
+
+                        # 5. RSI filter
+                        rsi_ok = (rsi[i] < genome.rsi_overbought and rsi[i] > genome.rsi_oversold)
+
+                        # 6. ADX trend strength filter
+                        adx_strong = adx_vals[i] >= 20
+
+                        # Decide entry signal based on which filters the genome uses
+                        long_signal = False
+                        short_signal = False
+
+                        # EMA cross + MACD cross + ADX = strongest setup
+                        if genome.use_ema_cross and genome.use_macd_filter and adx_strong and rsi_ok and vol_ok:
+                            if bullish_ema and macd_bull:
+                                long_signal = True
+                            if bearish_ema and macd_bear:
+                                short_signal = True
+                        # EMA cross only (less strict)
+                        elif genome.use_ema_cross and adx_strong and rsi_ok and vol_ok:
+                            if bullish_ema:
+                                long_signal = True
+                            if bearish_ema:
+                                short_signal = True
+                        # MACD cross only
+                        elif genome.use_macd_filter and adx_strong and rsi_ok and vol_ok:
+                            if macd_bull:
+                                long_signal = True
+                            if macd_bear:
+                                short_signal = True
+                        # Bollinger band bounce (mean reversion)
+                        elif genome.use_bb_bounce and vol_ok:
+                            # Long at lower band, short at upper band
+                            if bb_bull and macd_line[i] > macd_signal[i] and rsi[i] < 35:
+                                long_signal = True
+                            if bb_bear and macd_line[i] < macd_signal[i] and rsi[i] > 65:
+                                short_signal = True
+
+                        if long_signal:
                             in_trade = True
                             entry_price = closes[i]
                             atr_at_entry = atr[i]
                             sl = entry_price - atr_at_entry * genome.atr_sl_multiplier
                             tp = entry_price + atr_at_entry * genome.atr_tp_multiplier
                             trade = {'entry': i, 'entry_price': entry_price, 'sl': sl, 'tp': tp, 'side': 'long'}
-                        elif rsi_ok and adx_strong and bearish_cross:
+                        elif short_signal:
                             in_trade = True
                             entry_price = closes[i]
                             atr_at_entry = atr[i]
@@ -422,6 +580,62 @@ class GeneticSearcher:
             result[i] = adx
         return result
 
+    def _bollinger_bands(self, prices, period, stddev):
+        """Bollinger Bands: middle (SMA), upper, lower"""
+        if len(prices) < period:
+            return [None] * len(prices), [None] * len(prices), [None] * len(prices)
+        middle = [None] * len(prices)
+        upper = [None] * len(prices)
+        lower = [None] * len(prices)
+        for i in range(period - 1, len(prices)):
+            window = prices[i - period + 1:i + 1]
+            mean = sum(window) / period
+            variance = sum((p - mean) ** 2 for p in window) / period
+            std = variance ** 0.5
+            middle[i] = mean
+            upper[i] = mean + stddev * std
+            lower[i] = mean - stddev * std
+        return upper, middle, lower
+
+    def _macd(self, prices, fast_period, slow_period, signal_period):
+        """MACD: macd_line, signal_line, histogram"""
+        ema_fast = self._ema(prices, fast_period)
+        ema_slow = self._ema(prices, slow_period)
+        macd_line = [None] * len(prices)
+        for i in range(len(prices)):
+            if ema_fast[i] is not None and ema_slow[i] is not None:
+                macd_line[i] = ema_fast[i] - ema_slow[i]
+        # Signal line = EMA of macd_line
+        macd_values = [v if v is not None else 0 for v in macd_line]
+        signal_line_raw = self._ema(macd_values, signal_period)
+        signal_line = [None] * len(prices)
+        for i in range(len(prices)):
+            if macd_line[i] is not None and signal_line_raw[i] is not None:
+                signal_line[i] = signal_line_raw[i]
+        histogram = [None] * len(prices)
+        for i in range(len(prices)):
+            if macd_line[i] is not None and signal_line[i] is not None:
+                histogram[i] = macd_line[i] - signal_line[i]
+        return macd_line, signal_line, histogram
+
+    def _volume_sma(self, volumes, period=20):
+        """Simple moving average of volume"""
+        if len(volumes) < period:
+            return [None] * len(volumes)
+        result = [None] * len(volumes)
+        for i in range(period - 1, len(volumes)):
+            result[i] = sum(volumes[i - period + 1:i + 1]) / period
+        return result
+
+    def _sma(self, prices, period):
+        """Simple moving average"""
+        if len(prices) < period:
+            return [None] * len(prices)
+        result = [None] * len(prices)
+        for i in range(period - 1, len(prices)):
+            result[i] = sum(prices[i - period + 1:i + 1]) / period
+        return result
+
     def _get_mt5_bars(self, symbol: str, timeframe: str, days: int) -> List[dict]:
         """Get historical bars from MT5 for a specific symbol and timeframe"""
         if not self.backtester:
@@ -551,7 +765,11 @@ class GeneticSearcher:
         for g in population[:self.elite_count * 2]:  # top 10
             oos_genome = StrategyGenome(**{k: v for k, v in g.to_dict().items() if k in [
                 'ema_fast', 'ema_slow', 'rsi_period', 'rsi_overbought', 'rsi_oversold',
-                'atr_sl_multiplier', 'atr_tp_multiplier', 'min_adx', 'max_spread_pips'
+                'bb_period', 'bb_stddev', 'use_bb_filter',
+                'macd_fast', 'macd_slow', 'macd_signal', 'use_macd_filter',
+                'use_volume_filter', 'volume_min_multiplier',
+                'atr_sl_multiplier', 'atr_tp_multiplier', 'min_adx', 'min_atr_pips',
+                'max_spread_pips', 'use_ema_cross', 'use_macd_cross', 'use_bb_bounce'
             ]})
             oos_genome = self._score_genome_multi(oos_genome, oos)
             if (oos_genome.profit_factor >= self.min_profit_factor
@@ -647,8 +865,12 @@ class GeneticSearcher:
                     symbol TEXT,
                     ema_fast INTEGER, ema_slow INTEGER,
                     rsi_period INTEGER, rsi_overbought INTEGER, rsi_oversold INTEGER,
+                    bb_period INTEGER, bb_stddev REAL, use_bb_filter INTEGER,
+                    macd_fast INTEGER, macd_slow INTEGER, macd_signal INTEGER, use_macd_filter INTEGER,
+                    use_volume_filter INTEGER, volume_min_multiplier REAL,
                     atr_sl_multiplier REAL, atr_tp_multiplier REAL,
-                    min_adx REAL, max_spread_pips REAL,
+                    min_adx REAL, min_atr_pips REAL, max_spread_pips REAL,
+                    use_ema_cross INTEGER, use_macd_cross INTEGER, use_bb_bounce INTEGER,
                     profit_factor REAL, total_trades INTEGER,
                     win_rate REAL, max_drawdown REAL, sharpe REAL,
                     generation INTEGER, validated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -658,12 +880,20 @@ class GeneticSearcher:
                 cursor.execute("""
                     INSERT OR REPLACE INTO ml_genomes
                     (id, symbol, ema_fast, ema_slow, rsi_period, rsi_overbought, rsi_oversold,
-                     atr_sl_multiplier, atr_tp_multiplier, min_adx, max_spread_pips,
+                     bb_period, bb_stddev, use_bb_filter,
+                     macd_fast, macd_slow, macd_signal, use_macd_filter,
+                     use_volume_filter, volume_min_multiplier,
+                     atr_sl_multiplier, atr_tp_multiplier, min_adx, min_atr_pips, max_spread_pips,
+                     use_ema_cross, use_macd_cross, use_bb_bounce,
                      profit_factor, total_trades, win_rate, max_drawdown, sharpe, generation)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (g.id, symbol, g.ema_fast, g.ema_slow, g.rsi_period,
-                      g.rsi_overbought, g.rsi_oversold, g.atr_sl_multiplier,
-                      g.atr_tp_multiplier, g.min_adx, g.max_spread_pips,
+                      g.rsi_overbought, g.rsi_oversold,
+                      g.bb_period, g.bb_stddev, int(g.use_bb_filter),
+                      g.macd_fast, g.macd_slow, g.macd_signal, int(g.use_macd_filter),
+                      int(g.use_volume_filter), g.volume_min_multiplier,
+                      g.atr_sl_multiplier, g.atr_tp_multiplier, g.min_adx, g.min_atr_pips, g.max_spread_pips,
+                      int(g.use_ema_cross), int(g.use_macd_cross), int(g.use_bb_bounce),
                       g.profit_factor, g.total_trades, g.win_rate,
                       g.max_drawdown, g.sharpe, g.generation))
             conn.commit()
@@ -697,17 +927,30 @@ class GeneticSearcher:
                 rsi_period=d.get('rsi_period', 14),
                 rsi_overbought=d.get('rsi_overbought', 70),
                 rsi_oversold=d.get('rsi_oversold', 30),
+                bb_period=d.get('bb_period', 20),
+                bb_stddev=d.get('bb_stddev', 2.0),
+                use_bb_filter=bool(d.get('use_bb_filter', 1)),
+                macd_fast=d.get('macd_fast', 12),
+                macd_slow=d.get('macd_slow', 26),
+                macd_signal=d.get('macd_signal', 9),
+                use_macd_filter=bool(d.get('use_macd_filter', 1)),
+                use_volume_filter=bool(d.get('use_volume_filter', 1)),
+                volume_min_multiplier=d.get('volume_min_multiplier', 0.8),
                 atr_sl_multiplier=d.get('atr_sl_multiplier', 2.0),
                 atr_tp_multiplier=d.get('atr_tp_multiplier', 4.0),
                 min_adx=d.get('min_adx', 20.0),
+                min_atr_pips=d.get('min_atr_pips', 5.0),
                 max_spread_pips=d.get('max_spread_pips', 5.0),
+                use_ema_cross=bool(d.get('use_ema_cross', 1)),
+                use_macd_cross=bool(d.get('use_macd_cross', 1)),
+                use_bb_bounce=bool(d.get('use_bb_bounce', 0)),
                 profit_factor=d.get('profit_factor', 0),
                 total_trades=d.get('total_trades', 0),
                 win_rate=d.get('win_rate', 0),
                 max_drawdown=d.get('max_drawdown', 0),
                 sharpe=d.get('sharpe', 0),
                 generation=d.get('generation', 0),
-                id=d.get('id', '')
+                id=d.get('id', ''),
             )
         except Exception as e:
             logger.error(f"Failed to load genome: {e}")
