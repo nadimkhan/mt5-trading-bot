@@ -158,7 +158,7 @@ class SessionFilter:
         """Get the next available trading window"""
         now_utc = datetime.now(pytz.UTC)
         current_hour = now_utc.hour
-        
+
         if self.trade_london_ny_overlap:
             # Next overlap window
             if current_hour < 12:
@@ -175,3 +175,10 @@ class SessionFilter:
         """Check if symbol is a major pair requiring overlap"""
         majors = ["EURUSD", "GBPUSD", "USDJPY", "USDCHF", "USDCAD", "AUDUSD", "NZDUSD"]
         return symbol in majors
+
+    def is_tradeable_time(self, symbol: str = None) -> bool:
+        """Check if current time is a valid trading time for the given symbol.
+        Returns True if trading is allowed (or symbol is not major).
+        Uses is_trading_allowed for general check."""
+        check = self.is_trading_allowed(symbol)
+        return check.get("allowed", True)
