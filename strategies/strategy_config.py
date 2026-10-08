@@ -17,11 +17,27 @@ CONFIG_FILE = STRATEGY_CONFIGS_PATH
 _lock = Lock()
 
 # Default configurations for each strategy
+# Valid timeframe options for MT5
+TIMEFRAME_OPTIONS = ["M1", "M2", "M3", "M4", "M5", "M6", "M10", "M12", "M15", "M20", "M30",
+                     "H1", "H2", "H3", "H4", "H6", "H8", "H12", "D1", "W1", "MN1"]
+
 DEFAULT_CONFIGS = {
     "scalp": {
         "name": "Scalp Strategy",
-        "description": "H4 trend + M15 pullback + M1 confirmation",
+        "description": "Multi-timeframe trend + pullback + confirmation",
         "enabled": True,
+        "timeframes": {
+            "trend": {"value": "H4", "type": "select", "options": TIMEFRAME_OPTIONS,
+                      "label": "Trend Timeframe", "description": "Higher timeframe for trend direction (H4/H1/D1)"},
+            "entry": {"value": "M15", "type": "select", "options": TIMEFRAME_OPTIONS,
+                      "label": "Entry Timeframe", "description": "Timeframe for pullback entry setup (M15/M5)"},
+            "confirm": {"value": "M5", "type": "select", "options": TIMEFRAME_OPTIONS,
+                        "label": "Confirm Timeframe", "description": "Timeframe for entry confirmation (M5/M1)"},
+            "scalp_interval": {"value": 15, "type": "int", "min": 5, "max": 300, "step": 5,
+                              "label": "Scalp Check Interval (sec)", "description": "How often to check for new entries"},
+            "trend_interval": {"value": 60, "type": "int", "min": 30, "max": 3600, "step": 30,
+                               "label": "Trend Update Interval (sec)", "description": "How often to update trend analysis"}
+        },
         "parameters": {
             # EMA periods
             "ema_fast": {"value": 9, "type": "int", "min": 3, "max": 50, "label": "EMA Fast Period", "description": "Fast EMA for short-term momentum"},
@@ -52,6 +68,18 @@ DEFAULT_CONFIGS = {
         "name": "Trend Following",
         "description": "EMA crossover trend following",
         "enabled": True,
+        "timeframes": {
+            "trend": {"value": "H4", "type": "select", "options": TIMEFRAME_OPTIONS,
+                      "label": "Trend Timeframe", "description": "Higher timeframe for trend bias"},
+            "entry": {"value": "M15", "type": "select", "options": TIMEFRAME_OPTIONS,
+                      "label": "Entry Timeframe", "description": "Timeframe for crossover signal"},
+            "confirm": {"value": "M5", "type": "select", "options": TIMEFRAME_OPTIONS,
+                        "label": "Confirm Timeframe", "description": "Timeframe for confirmation"},
+            "scalp_interval": {"value": 60, "type": "int", "min": 5, "max": 300, "step": 5,
+                              "label": "Check Interval (sec)", "description": "How often to check for new entries"},
+            "trend_interval": {"value": 300, "type": "int", "min": 30, "max": 3600, "step": 30,
+                               "label": "Trend Update Interval (sec)", "description": "How often to update trend analysis"}
+        },
         "parameters": {
             "ema_fast": {"value": 9, "type": "int", "min": 3, "max": 50, "label": "EMA Fast Period"},
             "ema_slow": {"value": 21, "type": "int", "min": 5, "max": 100, "label": "EMA Slow Period"},
@@ -85,6 +113,18 @@ def load_configs():
                 merged = {}
                 for key, default in DEFAULT_CONFIGS.items():
                     merged[key] = saved.get(key, default)
+                    # Merge timeframes
+                    if 'timeframes' in default:
+                        if 'timeframes' not in merged[key]:
+                            merged[key]['timeframes'] = default['timeframes']
+                        else:
+                            for tfkey, tfval in default['timeframes'].items():
+                                if tfkey not in merged[key]['timeframes']:
+                                    merged[key]['timeframes'][tfkey] = tfval
+                                elif 'options' in tfval:
+                                    # Keep saved value but ensure options are present
+                                    if 'options' not in merged[key]['timeframes'][tfkey]:
+                                        merged[key]['timeframes'][tfkey]['options'] = tfval['options']
                     # Merge parameters
                     if 'parameters' in merged[key]:
                         for pkey, pval in default['parameters'].items():
@@ -136,20 +176,43 @@ def get_strategy_param(configs, strategy_name, param_name):
 
 
 def update_strategy_param(configs, strategy_name, param_name, new_value):
-    """Update a single parameter and validate"""
+    """Update a single parameter or timeframe and validate"""
     if strategy_name not in configs:
         return False, f"Unknown strategy: {strategy_name}"
-    if param_name not in configs[strategy_name]['parameters']:
-        return False, f"Unknown parameter: {param_name}"
-    param = configs[strategy_name]['parameters'][param_name]
-    # Validate value
-    try:
-        val = type(param['value'])(new_value)
-        if 'min' in param and val < param['min']:
-            return False, f"Value below minimum ({param['min']})"
-        if 'max' in param and val > param['max']:
-            return False, f"Value above maximum ({param['max']})"
-        param['value'] = val
-        return True, "OK"
-    except (ValueError, TypeError) as e:
-        return False, f"Invalid value type: {e}"
+
+    # Check parameters first
+    if param_name in configs[strategy_name].get('parameters', {}):
+        param = configs[strategy_name]['parameters'][param_name]
+        # Validate value
+        try:
+            val = type(param['value'])(new_value)
+            if 'min' in param and val < param['min']:
+                return False, f"Value below minimum ({param['min']})"
+            if 'max' in param and val > param['max']:
+                return False, f"Value above maximum ({param['max']})"
+            param['value'] = val
+            return True, "OK"
+        except (ValueError, TypeError) as e:
+            return False, f"Invalid value type: {e}"
+
+    # Check timeframes
+    if param_name in configs[strategy_name].get('timeframes', {}):
+        param = configs[strategy_name]['timeframes'][param_name]
+        # Validate select type (must be in options) or int
+        try:
+            if param.get('type') == 'select':
+                if new_value not in param.get('options', []):
+                    return False, f"Invalid option. Must be one of: {', '.join(param.get('options', []))}"
+                param['value'] = str(new_value)
+            else:
+                val = type(param['value'])(new_value)
+                if 'min' in param and val < param['min']:
+                    return False, f"Value below minimum ({param['min']})"
+                if 'max' in param and val > param['max']:
+                    return False, f"Value above maximum ({param['max']})"
+                param['value'] = val
+            return True, "OK"
+        except (ValueError, TypeError) as e:
+            return False, f"Invalid value type: {e}"
+
+    return False, f"Unknown parameter: {param_name}"

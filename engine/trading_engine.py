@@ -158,17 +158,18 @@ class TradingEngine:
         self.daily_loss = 0
         self.last_reset = datetime.now().date()
         self.last_h4_update = datetime.min  # For tracking H4 updates
-        
-        # Multi-timeframe configuration for scalping
+
+        # Multi-timeframe configuration - load from strategy config if available
+        # Will be updated when strategy is set
         self.timeframes = {
-            "trend": config.get("timeframes", {}).get("trend", "M15"),     # M15 - intra trend
-            "entry": config.get("timeframes", {}).get("entry", "M5"),      # M5 - entry signals
-            "confirm": config.get("timeframes", {}).get("confirm", "M1")    # M1 - precise entry
+            "trend": config.get("timeframes", {}).get("trend", "M15"),
+            "entry": config.get("timeframes", {}).get("entry", "M5"),
+            "confirm": config.get("timeframes", {}).get("confirm", "M1")
         }
-        
-        # Loop intervals for scalping (seconds)
-        self.scalp_interval = config.get("engine", {}).get("scalp_loop_seconds", 15)  # Check every 15s
-        self.trend_interval = config.get("engine", {}).get("trend_loop_seconds", 60)  # Update M15 trend every 60s
+
+        # Loop intervals for scalping (seconds) - will be updated from strategy config
+        self.scalp_interval = config.get("engine", {}).get("scalp_loop_seconds", 15)
+        self.trend_interval = config.get("engine", {}).get("trend_loop_seconds", 60)
         
         # Load symbols from DB or config
         self.symbols = get_enabled_symbols()
@@ -262,15 +263,57 @@ class TradingEngine:
                 logger.info("AI Filter initialized - AI will veto/approve setups")
             else:
                 logger.info("AI Filter disabled - using rule-based signals only")
-            
+
+            # Apply timeframes and intervals from active strategy config
+            self._apply_strategy_timeframes()
+
             self.status = "READY"
             logger.info(f"Trading Engine initialized - Symbols: {self.symbols}, Timeframes: {self.timeframes}")
             return True
-            
+
         except Exception as e:
             logger.error(f"Initialization failed: {e}")
             self.status = "ERROR"
             return False
+
+    def _apply_strategy_timeframes(self):
+        """Apply timeframes and intervals from the active strategy's saved config"""
+        try:
+            from strategies.strategy_config import load_configs
+            configs = load_configs()
+            active = self.strategy_manager.active_strategy if self.strategy_manager else "scalp"
+            strategy_config = configs.get(active, {})
+            tf_config = strategy_config.get("timeframes", {})
+
+            # Update timeframes
+            new_tfs = {}
+            for key in ["trend", "entry", "confirm"]:
+                if key in tf_config:
+                    new_tfs[key] = tf_config[key].get("value", self.timeframes.get(key, "M5"))
+                else:
+                    new_tfs[key] = self.timeframes.get(key, "M5")
+            if new_tfs != self.timeframes:
+                logger.info(f"Timeframes updated: {self.timeframes} -> {new_tfs}")
+                self.timeframes = new_tfs
+
+            # Update loop intervals
+            scalp_int = tf_config.get("scalp_interval", {}).get("value", 15)
+            trend_int = tf_config.get("trend_interval", {}).get("value", 60)
+            if scalp_int != self.scalp_interval:
+                logger.info(f"Scalp interval updated: {self.scalp_interval}s -> {scalp_int}s")
+                self.scalp_interval = scalp_int
+            if trend_int != self.trend_interval:
+                logger.info(f"Trend interval updated: {self.trend_interval}s -> {trend_int}s")
+                self.trend_interval = trend_int
+        except Exception as e:
+            logger.error(f"Failed to apply strategy timeframes: {e}")
+
+    def set_active_strategy(self, strategy_name):
+        """Switch active strategy and apply its timeframes"""
+        if self.strategy_manager:
+            self.strategy_manager.active_strategy = strategy_name
+            self._apply_strategy_timeframes()
+            logger.info(f"Switched to strategy: {strategy_name}, Timeframes: {self.timeframes}")
 
     def start(self):
         """Start the trading loop"""

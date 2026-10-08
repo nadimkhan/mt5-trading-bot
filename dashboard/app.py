@@ -280,7 +280,7 @@ def api_get_strategy_configs():
 
 @app.route('/api/strategies/config', methods=['POST'])
 def api_update_strategy_config():
-    """Update a strategy parameter"""
+    """Update a strategy parameter or timeframe"""
     from strategies.strategy_config import load_configs, save_configs, update_strategy_param
     data = request.get_json()
     strategy = data.get('strategy')
@@ -296,6 +296,10 @@ def api_update_strategy_config():
             strategy_obj = engine.strategy_manager.strategies.get(strategy)
             if strategy_obj and hasattr(strategy_obj, 'reload_config'):
                 strategy_obj.reload_config(configs)
+            # If timeframe changed, apply to engine
+            if param in ['trend', 'entry', 'confirm', 'scalp_interval', 'trend_interval']:
+                if hasattr(engine, '_apply_strategy_timeframes'):
+                    engine._apply_strategy_timeframes()
         return jsonify({"status": "ok", "strategy": strategy, "param": param, "value": value})
     return jsonify({"error": msg}), 400
 
@@ -315,7 +319,9 @@ def api_set_strategy():
     global engine
     data = request.get_json()
     strategy = data.get('strategy', 'scalp')
-    if engine and hasattr(engine, 'strategy_manager'):
+    if engine and hasattr(engine, 'set_active_strategy'):
+        engine.set_active_strategy(strategy)
+    elif engine and hasattr(engine, 'strategy_manager'):
         engine.strategy_manager.active_strategy = strategy
     return jsonify({"status": "ok", "strategy": strategy})
 
