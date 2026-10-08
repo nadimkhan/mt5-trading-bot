@@ -34,7 +34,7 @@ class Backtester:
         self.min_trades = bt_config.get("min_trades", 100)
         self.max_drawdown_percent = bt_config.get("max_drawdown_percent", 20)
         
-    def download_historical_data(self, symbol: str, timeframe: str, 
+    def download_historical_data(self, symbol: str, timeframe: str,
                                  start_date: datetime, end_date: datetime) -> List[dict]:
         """Download historical data from MT5 for backtesting"""
         try:
@@ -42,16 +42,32 @@ class Backtester:
             if not mt5.initialize():
                 logger.error("MT5 not initialized")
                 return []
-            
-            # Convert to MT5 date format
-            start_ts = int(start_date.timestamp())
-            end_ts = int(end_date.timestamp())
-            
-            rates = mt5.copy_rates_range(symbol, timeframe, start_ts, end_ts)
-            if rates is None or len(rates) == 0:
-                logger.error(f"No historical data for {symbol} {timeframe}")
+
+            # Map timeframe string to MT5 constant
+            tf_map = {
+                "M1": mt5.TIMEFRAME_M1, "M5": mt5.TIMEFRAME_M5, "M15": mt5.TIMEFRAME_M15,
+                "M30": mt5.TIMEFRAME_M30, "H1": mt5.TIMEFRAME_H1, "H4": mt5.TIMEFRAME_H4,
+                "D1": mt5.TIMEFRAME_D1, "W1": mt5.TIMEFRAME_W1, "MN1": mt5.TIMEFRAME_MN1
+            }
+            tf_const = tf_map.get(timeframe, mt5.TIMEFRAME_H1)
+
+            # Ensure symbol is selected in Market Watch
+            if not mt5.symbol_info(symbol):
+                logger.error(f"Symbol {symbol} not found in MT5")
                 return []
-            
+            if not mt5.symbol_info(symbol).visible:
+                mt5.symbol_select(symbol, True)
+
+            # MT5 copy_rates_range expects datetime objects, not int timestamps
+            rates = mt5.copy_rates_range(symbol, tf_const, start_date, end_date)
+            if rates is None:
+                err = mt5.last_error()
+                logger.error(f"MT5 returned None for {symbol} {timeframe}: {err}")
+                return []
+            if len(rates) == 0:
+                logger.warning(f"No bars returned for {symbol} {timeframe} in {start_date} to {end_date}")
+                return []
+
             bars = []
             for rate in rates:
                 bars.append({
