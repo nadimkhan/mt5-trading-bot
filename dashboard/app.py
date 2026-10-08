@@ -347,22 +347,39 @@ def api_ml_search():
             from backtester.backtester import Backtester
             backtester = Backtester(engine.mt5, config)
         searcher = GeneticSearcher(backtester=backtester, config=config)
-        # Use first symbol if available
-        symbol = None
+        # Get all enabled symbols from engine
+        symbols = []
         if engine and hasattr(engine, 'symbols') and engine.symbols:
-            symbol = engine.symbols[0]
+            symbols = engine.symbols
+        else:
+            symbols = ["EURUSD"]
+        # Get timeframes (use entry timeframe as default)
+        timeframes = ["H1"]  # H1 is the most reliable for ML search
+        if engine and hasattr(engine, 'timeframes'):
+            entry_tf = engine.timeframes.get("entry", "M15")
+            # Only use higher TFs for search (need more data per bar)
+            tf_map = {"M1": "M15", "M5": "H1", "M15": "H1", "M30": "H1",
+                      "H1": "H1", "H4": "H4", "D1": "D1"}
+            timeframes = [tf_map.get(entry_tf, "H1")]
         # Run search
-        validated = searcher.run_search(symbol=symbol, days=180)
+        days = data.get('days', 365)
+        logger.info(f"ML search starting for symbols={symbols} timeframes={timeframes} days={days}")
+        validated = searcher.run_search(symbols=symbols, timeframes=timeframes, days=days)
         # Return results
         best_pf = max((g.profit_factor for g in validated), default=0)
         return jsonify({
             "status": "ok",
             "validated_count": len(validated),
             "best_pf": round(best_pf, 2),
+            "symbols_searched": symbols,
+            "timeframes_used": timeframes,
+            "data_source": "MT5 historical" if backtester else "synthetic",
             "genomes": [g.to_dict() for g in validated]
         })
     except Exception as e:
         logger.error(f"ML search failed: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 

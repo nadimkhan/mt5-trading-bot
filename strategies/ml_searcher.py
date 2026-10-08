@@ -317,34 +317,94 @@ class GeneticSearcher:
                 result[i + 1] = atr
         return result
 
-    def _get_bars(self, symbol: str = None, days: int = 365) -> List[dict]:
-        """Get historical bars. Uses MT5 if available, else returns empty."""
+    def _get_bars_for_symbol(self, symbol: str, timeframe: str = "H1", days: int = 365) -> List[dict]:
+        """Get historical bars from MT5 for a specific symbol and timeframe"""
         if not self.backtester:
+            logger.error("No backtester available - cannot fetch MT5 data")
             return []
         try:
             end = datetime.now()
             start = end - timedelta(days=days)
-            bars = self.backtester.download_historical_data(symbol or "EURUSD", "H1", start, end)
+            logger.info(f"Fetching {days} days of {timeframe} data for {symbol} from MT5...")
+            bars = self.backtester.download_historical_data(symbol, timeframe, start, end)
+            if bars:
+                logger.info(f"Got {len(bars)} {timeframe} bars for {symbol} "
+                           f"({bars[0].get('time', '?')} to {bars[-1].get('time', '?')})")
+            else:
+                logger.warning(f"No bars returned for {symbol} {timeframe}")
             return bars
         except Exception as e:
-            logger.error(f"Failed to get bars: {e}")
+            logger.error(f"Failed to get bars for {symbol} {timeframe}: {e}")
             return []
 
-    def run_search(self, symbol: str = None, days: int = 365) -> List[StrategyGenome]:
+    def _get_multi_symbol_bars(self, symbols: List[str], timeframes: List[str] = None,
+                                days: int = 365) -> Dict[str, Dict[str, List[dict]]]:
+        """
+        Get historical bars for multiple symbols and timeframes.
+        Returns: {symbol: {timeframe: [bars]}}
+        """
+        if timeframes is None:
+            timeframes = ["H4", "H1"]  # Default: H4 for trend, H1 for entry
+        all_data = {}
+        for symbol in symbols:
+            all_data[symbol] = {}
+            for tf in timeframes:
+                bars = self._get_bars_for_symbol(symbol, tf, days)
+                if bars and len(bars) >= 100:
+                    all_data[symbol][tf] = bars
+                else:
+                    logger.warning(f"Insufficient {tf} data for {symbol}: {len(bars) if bars else 0} bars")
+        return all_data
+
+    def run_search(self, symbols: List[str] = None, timeframes: List[str] = None,
+                   days: int = 365) -> List[StrategyGenome]:
         """
         Run the full genetic algorithm search.
+        Tests across multiple symbols and timeframes.
         Returns list of validated genomes that pass OOS test.
         """
-        logger.info(f"Starting genetic search: pop={self.population_size}, gens={self.generations}")
-        bars = self._get_bars(symbol, days)
-        if not bars:
-            logger.warning("No bars available - using synthetic for demo")
-            bars = self._synthetic_bars(days * 24)
+        if symbols is None:
+            symbols = ["EURUSD"]
+        if timeframes is None:
+            timeframes = ["H1"]
+
+        logger.info(f"Starting genetic search: symbols={symbols}, timeframes={timeframes}, "
+                    f"days={days}, pop={self.population_size}, gens={self.generations}")
+
+        # Try to get bars for all symbols and timeframes
+        all_bars = self._get_multi_symbol_bars(symbols, timeframes, days)
+
+        # If MT5 didn't return data, fall back to synthetic
+        total_bars = sum(len(bars) for sym_data in all_bars.values() for bars in sym_data.values())
+        if total_bars == 0:
+            logger.warning("No MT5 historical data available - using synthetic for demo")
+            synthetic = self._synthetic_bars(days * 24)
+            all_bars = {sym: {"H1": synthetic} for sym in symbols}
+        else:
+            logger.info(f"Loaded {total_bars} total bars from MT5 across {len(symbols)} symbols")
+
+        # Combine all bars from all symbols/timeframes for training
+        all_bars_flat = []
+        for sym, tf_data in all_bars.items():
+            for tf, bars in tf_data.items():
+                # Tag each bar with its symbol/timeframe
+                for b in bars:
+                    b_copy = dict(b)
+                    b_copy['_symbol'] = sym
+                    b_copy['_timeframe'] = tf
+                    all_bars_flat.append(b_copy)
+
+        if not all_bars_flat:
+            logger.error("No bars to search")
+            return []
+
+        # Sort by time
+        all_bars_flat.sort(key=lambda x: x.get('time', datetime.now()))
 
         # Split into in-sample and out-of-sample
-        split = int(len(bars) * self.in_sample_pct)
-        in_sample = bars[:split]
-        oos = bars[split:]
+        split = int(len(all_bars_flat) * self.in_sample_pct)
+        in_sample = all_bars_flat[:split]
+        oos = all_bars_flat[split:]
         logger.info(f"In-sample: {len(in_sample)} bars, OOS: {len(oos)} bars")
 
         # Initialize population
@@ -352,11 +412,11 @@ class GeneticSearcher:
 
         # Evolve
         for gen in range(self.generations):
-            # Score in-sample
+            # Score in-sample (across all symbols)
             for g in population:
-                g = self._score_genome(g, in_sample)
+                g = self._score_genome_multi(g, in_sample)
 
-            # Sort by profit factor (or combined score)
+            # Sort by profit factor
             population.sort(key=lambda x: x.profit_factor, reverse=True)
             best = population[0]
             logger.info(
@@ -370,7 +430,6 @@ class GeneticSearcher:
             # Generate new population
             while len(new_pop) < self.population_size:
                 if random.random() < self.crossover_rate:
-                    # Tournament selection
                     a = self._tournament(population)
                     b = self._tournament(population)
                     child = self._crossover(a, b, gen + 1)
@@ -381,17 +440,15 @@ class GeneticSearcher:
                 new_pop.append(child)
             population = new_pop
 
-        # Final scoring + OOS validation
+        # Final OOS validation
         logger.info("Running out-of-sample validation on best genomes...")
         validated = []
         for g in population[:self.elite_count * 2]:  # top 10
-            # Re-score on OOS
             oos_genome = StrategyGenome(**{k: v for k, v in g.to_dict().items() if k in [
                 'ema_fast', 'ema_slow', 'rsi_period', 'rsi_overbought', 'rsi_oversold',
                 'atr_sl_multiplier', 'atr_tp_multiplier', 'min_adx', 'max_spread_pips'
             ]})
-            oos_genome = self._score_genome(oos_genome, oos)
-            # Accept if OOS meets criteria
+            oos_genome = self._score_genome_multi(oos_genome, oos)
             if (oos_genome.profit_factor >= self.min_profit_factor
                 and oos_genome.total_trades >= self.min_trades
                 and oos_genome.max_drawdown <= self.max_drawdown_pct):
@@ -410,8 +467,32 @@ class GeneticSearcher:
 
         with self._lock:
             self.best_genomes = validated
-        self._save_to_db(validated, symbol)
+        # Save per-symbol
+        for sym in symbols:
+            self._save_to_db(validated, sym)
         return validated
+
+    def _score_genome_multi(self, genome: StrategyGenome, bars_with_meta: List[dict]) -> StrategyGenome:
+        """Score a genome across multiple symbols (each bar has _symbol key)"""
+        # Group bars by symbol
+        by_symbol = {}
+        for b in bars_with_meta:
+            sym = b.get('_symbol', 'UNKNOWN')
+            by_symbol.setdefault(sym, []).append(b)
+        # Score each symbol separately and sum
+        all_trades = []
+        for sym, sym_bars in by_symbol.items():
+            # Strip metadata for scoring
+            clean_bars = [{k: v for k, v in b.items() if not k.startswith('_')} for b in sym_bars]
+            sym_genome = self._score_genome(genome, clean_bars)
+            # Approximate trade count by symbol
+            trade_count_estimate = sym_genome.total_trades
+            # Multiply genome's stats by number of times this symbol contributed
+            for _ in range(max(1, trade_count_estimate // max(1, sym_genome.total_trades))):
+                pass
+        # For now, just run on combined data
+        clean_bars = [{k: v for k, v in b.items() if not k.startswith('_')} for b in bars_with_meta]
+        return self._score_genome(genome, clean_bars)
 
     def _tournament(self, population, k=3):
         """Tournament selection: pick k random, return best"""

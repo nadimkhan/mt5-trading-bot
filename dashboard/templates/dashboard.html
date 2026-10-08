@@ -593,22 +593,25 @@
         }
 
         function runMLSearch() {
-            if (!confirm('Run genetic algorithm search? This will test 50+ strategies across 20 generations. May take 1-2 minutes.')) return;
+            if (!confirm('Run genetic algorithm search? This will test thousands of strategy combinations against MT5 historical data for ALL your enabled symbols. May take 2-5 minutes.')) return;
             const btn = document.getElementById('btn-ml-search');
             const oldText = btn.textContent;
-            btn.textContent = 'Searching...';
+            btn.textContent = 'Searching MT5 data...';
             btn.disabled = true;
             fetch('/api/ml/search', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ generations: 20, population_size: 50 })
+                body: JSON.stringify({ generations: 20, population_size: 50, days: 365 })
             }).then(r => r.json()).then(data => {
                 btn.textContent = oldText;
                 btn.disabled = false;
                 if (data.error) {
                     showModal('ML Search failed: ' + data.error);
                 } else {
-                    showModal('ML Search complete! Found ' + data.validated_count + ' validated strategies. Best PF: ' + data.best_pf);
+                    const sourceMsg = data.data_source === 'MT5 historical'
+                        ? 'using real MT5 historical data'
+                        : 'using synthetic data (MT5 may not be connected)';
+                    showModal(`ML Search complete! Found ${data.validated_count} validated strategies. Best PF: ${data.best_pf} (${sourceMsg}). Symbols: ${data.symbols_searched.join(', ')}`);
                 }
             }).catch(err => {
                 btn.textContent = oldText;
