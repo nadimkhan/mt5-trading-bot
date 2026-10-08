@@ -755,9 +755,38 @@ class TradingEngine:
                 # Get strategy signal
                 setup = self.strategy_manager.get_signal(market_data)
 
-                # If no clear signal, skip
-                if setup.get("signal") in ["HOLD", "NONE", None]:
-                    self.log_rejection(symbol, 'no_signal', 'Strategy returned HOLD/NONE')
+                # Log this attempt for dashboard visibility (every symbol, every loop)
+                setup_signal = setup.get("signal", "NONE")
+                setup_confidence = setup.get("confidence", 0)
+                setup_reason = setup.get("reason", "No reason provided")
+
+                # If no clear signal, still log it as a HOLD decision and skip trading
+                if setup_signal in ["HOLD", "NONE", None]:
+                    # Log the HOLD decision to dashboard
+                    from datetime import datetime as _dt
+                    self.ai_decisions.append({
+                        "timestamp": _dt.now(),
+                        "decision": {
+                            "action": "HOLD",
+                            "symbol": symbol,
+                            "lot_size": 0,
+                            "stop_loss_pips": 0,
+                            "take_profit_pips": 0,
+                            "reasoning": setup_reason,
+                            "signal": "HOLD",
+                            "strategy": self.strategy_manager.active_strategy,
+                            "confidence": setup_confidence,
+                            "entry_price": None,
+                            "stop_loss": None,
+                            "take_profit": None,
+                            "market_regime": setup.get("regime", "UNKNOWN"),
+                            "vetoed": False
+                        },
+                        "market_data": self.market_data
+                    })
+                    # Keep only last 50 decisions
+                    self.ai_decisions = self.ai_decisions[-50:]
+                    self.log_rejection(symbol, 'no_signal', setup_reason)
                     continue
 
                 # Check confidence threshold from strategy config
