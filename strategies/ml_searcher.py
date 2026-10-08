@@ -483,10 +483,15 @@ class GeneticSearcher:
             genome.sharpe = round(sharpe, 2)
             # Sanity check: if PF is huge but win rate is tiny, it's a "lottery ticket" strategy
             # Cap the profit factor to discourage overfitting to a single lucky trade
-            if len(wins) <= 2 and profit_factor > 10:
+            # Real strategies have WR >= 30% with reasonable trade counts
+            if len(wins) < 3 and profit_factor > 5:
                 # Reject this score by setting PF very low
                 genome.profit_factor = 0.0
-                logger.debug(f"Capping lottery-ticket PF: {profit_factor:.1f} with only {len(wins)} wins")
+                logger.debug(f"Capping lottery-ticket PF: {profit_factor:.1f} with only {len(wins)} wins out of {len(trades)} trades")
+            # Also reject if WR < 5% even with many trades (random strategy)
+            if win_rate < 5.0 and len(trades) >= 10:
+                genome.profit_factor = 0.0
+                logger.debug(f"Capping low-WR strategy: {win_rate:.1f}% win rate over {len(trades)} trades")
         except Exception as e:
             import traceback
             logger.error(f"Genome scoring failed: {e}")
@@ -799,11 +804,11 @@ class GeneticSearcher:
             oos_genome = self._score_genome_multi(oos_genome, oos)
             # Reject if:
             #  - PF too low
-            #  - Too few trades (statistically meaningless)
+            #  - Too few trades (statistically meaningless - need at least 30)
             #  - Drawdown too high (would blow account)
             #  - Win rate suspiciously low (lottery ticket, not a strategy)
             if (oos_genome.profit_factor >= self.min_profit_factor
-                and oos_genome.total_trades >= self.min_trades
+                and oos_genome.total_trades >= max(self.min_trades, 30)
                 and oos_genome.max_drawdown <= self.max_drawdown_pct
                 and oos_genome.win_rate >= 30.0):  # require at least 30% WR (real strategy)
                 oos_genome.generation = self.generations
