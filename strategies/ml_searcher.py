@@ -482,7 +482,9 @@ class GeneticSearcher:
             genome.max_drawdown = round(max_dd, 1)
             genome.sharpe = round(sharpe, 2)
         except Exception as e:
+            import traceback
             logger.error(f"Genome scoring failed: {e}")
+            logger.debug(traceback.format_exc())
         return genome
 
     def _ema(self, prices, period):
@@ -541,43 +543,60 @@ class GeneticSearcher:
         return result
 
     def _adx(self, highs, lows, closes, period=14):
-        """Average Directional Index - measures trend strength"""
-        if len(highs) < period * 2:
-            return [None] * len(highs)
-        result = [None] * len(highs)
-        # +DM and -DM
-        plus_dm = [0]
-        minus_dm = [0]
-        tr = [0]
-        for i in range(1, len(highs)):
+        """Average Directional Index - measures trend strength.
+        Returns list of same length as input; first N values are None."""
+        n = len(highs)
+        if n < period * 3:
+            return [None] * n
+        result = [None] * n
+        # +DM and -DM per bar
+        plus_dm = [0.0] * n
+        minus_dm = [0.0] * n
+        tr = [0.0] * n
+        for i in range(1, n):
             up = highs[i] - highs[i-1]
             down = lows[i-1] - lows[i]
-            plus_dm.append(max(up, 0) if up > down else 0)
-            minus_dm.append(max(down, 0) if down > up else 0)
-            tr.append(max(highs[i] - lows[i], abs(highs[i] - closes[i-1]), abs(lows[i] - closes[i-1])))
-        # Smooth
-        def smooth(arr):
-            smoothed = [sum(arr[:period])]
-            for i in range(period, len(arr)):
-                smoothed.append(smoothed[-1] - smoothed[-1]/period + arr[i])
+            if up > down and up > 0:
+                plus_dm[i] = up
+            if down > up and down > 0:
+                minus_dm[i] = down
+            tr[i] = max(highs[i] - lows[i],
+                       abs(highs[i] - closes[i-1]),
+                       abs(lows[i] - closes[i-1]))
+        # Smooth using Wilder's method: smoothed[i] = smoothed[i-1] - smoothed[i-1]/N + val[i]
+        def wilder_smooth(arr):
+            smoothed = [0.0] * n
+            # Initial sum for first `period` values
+            s = sum(arr[1:period + 1])
+            smoothed[period] = s
+            for i in range(period + 1, n):
+                smoothed[i] = smoothed[i-1] - smoothed[i-1]/period + arr[i]
             return smoothed
-        if len(tr) < period:
-            return [None] * len(highs)
-        tr_sm = smooth(tr[period-1:])
-        plus_dm_sm = smooth(plus_dm[period-1:])
-        minus_dm_sm = smooth(minus_dm[period-1:])
+        tr_sm = wilder_smooth(tr)
+        plus_dm_sm = wilder_smooth(plus_dm)
+        minus_dm_sm = wilder_smooth(minus_dm)
         # +DI, -DI
-        plus_di = [100 * p / t if t > 0 else 0 for p, t in zip(plus_dm_sm, tr_sm)]
-        minus_di = [100 * m / t if t > 0 else 0 for m, t in zip(minus_dm_sm, tr_sm)]
-        # DX and ADX
-        dx = [100 * abs(p - m) / (p + m) if (p + m) > 0 else 0 for p, m in zip(plus_di, minus_di)]
-        if len(dx) < period:
-            return [None] * len(highs)
-        adx = sum(dx[:period]) / period
-        result[period * 2 - 1] = adx
-        for i in range(period * 2, len(highs)):
-            adx = (adx * (period - 1) + dx[i - period]) / period
-            result[i] = adx
+        plus_di = [0.0] * n
+        minus_di = [0.0] * n
+        dx = [0.0] * n
+        for i in range(period, n):
+            if tr_sm[i] > 0:
+                plus_di[i] = 100 * plus_dm_sm[i] / tr_sm[i]
+                minus_di[i] = 100 * minus_dm_sm[i] / tr_sm[i]
+            sum_di = plus_di[i] + minus_di[i]
+            if sum_di > 0:
+                dx[i] = 100 * abs(plus_di[i] - minus_di[i]) / sum_di
+        # ADX = Wilder smooth of DX
+        if n < period * 2:
+            return result
+        adx_sum = sum(dx[period:period*2])
+        if period == 0:
+            return result
+        adx_val = adx_sum / period
+        result[period * 2] = adx_val
+        for i in range(period * 2 + 1, n):
+            adx_val = (adx_val * (period - 1) + dx[i]) / period
+            result[i] = adx_val
         return result
 
     def _bollinger_bands(self, prices, period, stddev):
