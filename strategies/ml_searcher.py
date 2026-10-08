@@ -481,6 +481,12 @@ class GeneticSearcher:
             genome.total_pnl = round(total_pnl, 2)
             genome.max_drawdown = round(max_dd, 1)
             genome.sharpe = round(sharpe, 2)
+            # Sanity check: if PF is huge but win rate is tiny, it's a "lottery ticket" strategy
+            # Cap the profit factor to discourage overfitting to a single lucky trade
+            if len(wins) <= 2 and profit_factor > 10:
+                # Reject this score by setting PF very low
+                genome.profit_factor = 0.0
+                logger.debug(f"Capping lottery-ticket PF: {profit_factor:.1f} with only {len(wins)} wins")
         except Exception as e:
             import traceback
             logger.error(f"Genome scoring failed: {e}")
@@ -791,9 +797,15 @@ class GeneticSearcher:
                 'max_spread_pips', 'use_ema_cross', 'use_macd_cross', 'use_bb_bounce'
             ]})
             oos_genome = self._score_genome_multi(oos_genome, oos)
+            # Reject if:
+            #  - PF too low
+            #  - Too few trades (statistically meaningless)
+            #  - Drawdown too high (would blow account)
+            #  - Win rate suspiciously low (lottery ticket, not a strategy)
             if (oos_genome.profit_factor >= self.min_profit_factor
                 and oos_genome.total_trades >= self.min_trades
-                and oos_genome.max_drawdown <= self.max_drawdown_pct):
+                and oos_genome.max_drawdown <= self.max_drawdown_pct
+                and oos_genome.win_rate >= 30.0):  # require at least 30% WR (real strategy)
                 oos_genome.generation = self.generations
                 oos_genome.id = f"validated_{len(validated)}"
                 validated.append(oos_genome)
