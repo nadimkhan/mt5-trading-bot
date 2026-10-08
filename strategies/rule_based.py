@@ -343,7 +343,21 @@ class StrategyManager:
             self.strategies["ml"] = MLStrategy(config)
         except Exception as e:
             logger.warning(f"ML strategy not available: {e}")
-        self.active_strategy = self.config.get("strategy", {}).get("active", "scalp")
+        # Determine active strategy: config > persisted > default
+        active = self.config.get("strategy", {}).get("active", "scalp")
+        try:
+            from strategies.strategy_config import CONFIG_FILE
+            import json as _json, os as _os
+            if _os.path.exists(CONFIG_FILE):
+                with open(CONFIG_FILE, 'r') as f:
+                    saved = _json.load(f)
+                persisted = saved.get('__active_strategy__')
+                if persisted and persisted in self.strategies:
+                    active = persisted
+                    logger.info(f"Loaded persisted active strategy: {active}")
+        except Exception as e:
+            logger.debug(f"No persisted strategy: {e}")
+        self.active_strategy = active
     
     def get_signal(self, market_data: Dict) -> Dict:
         """Get signal from active strategy"""

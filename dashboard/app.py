@@ -396,6 +396,7 @@ def api_reload_strategies():
 
 @app.route('/api/strategies/set', methods=['POST'])
 def api_set_strategy():
+    """Set the active strategy and persist it to disk"""
     global engine
     data = request.get_json()
     strategy = data.get('strategy', 'scalp')
@@ -403,6 +404,23 @@ def api_set_strategy():
         engine.set_active_strategy(strategy)
     elif engine and hasattr(engine, 'strategy_manager'):
         engine.strategy_manager.active_strategy = strategy
+    # Persist to disk so it survives bot restarts
+    try:
+        from strategies.strategy_config import _lock, CONFIG_FILE
+        import json as _json
+        with _lock:
+            configs = {}
+            if os.path.exists(CONFIG_FILE):
+                try:
+                    with open(CONFIG_FILE, 'r') as f:
+                        configs = _json.load(f)
+                except Exception:
+                    configs = {}
+            configs['__active_strategy__'] = strategy
+            with open(CONFIG_FILE, 'w') as f:
+                _json.dump(configs, f, indent=2)
+    except Exception as e:
+        logger.warning(f"Could not persist active strategy: {e}")
     return jsonify({"status": "ok", "strategy": strategy})
 
 
