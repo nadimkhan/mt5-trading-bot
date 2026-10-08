@@ -118,24 +118,10 @@ class TradeManager:
             return 0.01
     
     def modify_position_sl(self, ticket: int, new_sl: float) -> bool:
-        """Modify position SL server-side via MT5"""
-        try:
-            result = mt5.order_send({
-                "action": mt5.TRADE_ACTION_SLTP,
-                "position": ticket,
-                "sl": new_sl,
-                "magic": self.magic
-            })
-            
-            if result.retcode == mt5.TRADE_RETCODE_DONE:
-                logger.info(f"Modified SL for ticket {ticket} to {new_sl}")
-                return True
-            else:
-                logger.warning(f"Failed to modify SL: {result.comment}")
-                return False
-        except Exception as e:
-            logger.error(f"Failed to modify SL: {e}")
+        """Modify position SL server-side via MT5 - delegates to connector for validation"""
+        if not self.mt5:
             return False
+        return self.mt5.modify_sl(ticket, new_sl)
     
     def move_breakeven(self, position: dict) -> bool:
         """Move SL to breakeven if profit exceeds trigger"""
