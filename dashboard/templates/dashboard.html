@@ -613,6 +613,7 @@
         function updateStrategyUI(strategy) {
             document.getElementById('btn-scalp').classList.toggle('active', strategy === 'scalp');
             document.getElementById('btn-trend').classList.toggle('active', strategy === 'trend');
+            document.getElementById('btn-regime').classList.toggle('active', strategy === 'regime');
             document.getElementById('btn-ml').classList.toggle('active', strategy === 'ml');
 
             // Enable/disable context buttons based on strategy
