@@ -1,3 +1,694 @@
 {
-  "__active_strategy__": "regime"
+  "scalp": {
+    "name": "Scalp Strategy",
+    "description": "Multi-timeframe trend + pullback + confirmation",
+    "enabled": true,
+    "ai_required": {
+      "value": true,
+      "type": "bool",
+      "label": "Require AI Confirmation",
+      "description": "If true, AI must confirm each trade. If false, trades execute without AI."
+    },
+    "timeframes": {
+      "trend": {
+        "value": "H1",
+        "type": "select",
+        "options": [
+          "M1",
+          "M2",
+          "M3",
+          "M4",
+          "M5",
+          "M6",
+          "M10",
+          "M12",
+          "M15",
+          "M20",
+          "M30",
+          "H1",
+          "H2",
+          "H3",
+          "H4",
+          "H6",
+          "H8",
+          "H12",
+          "D1",
+          "W1",
+          "MN1"
+        ],
+        "label": "Trend Timeframe",
+        "description": "Higher timeframe for trend direction (H4/H1/D1)"
+      },
+      "entry": {
+        "value": "M15",
+        "type": "select",
+        "options": [
+          "M1",
+          "M2",
+          "M3",
+          "M4",
+          "M5",
+          "M6",
+          "M10",
+          "M12",
+          "M15",
+          "M20",
+          "M30",
+          "H1",
+          "H2",
+          "H3",
+          "H4",
+          "H6",
+          "H8",
+          "H12",
+          "D1",
+          "W1",
+          "MN1"
+        ],
+        "label": "Entry Timeframe",
+        "description": "Timeframe for pullback entry setup (M15/M5)"
+      },
+      "confirm": {
+        "value": "M5",
+        "type": "select",
+        "options": [
+          "M1",
+          "M2",
+          "M3",
+          "M4",
+          "M5",
+          "M6",
+          "M10",
+          "M12",
+          "M15",
+          "M20",
+          "M30",
+          "H1",
+          "H2",
+          "H3",
+          "H4",
+          "H6",
+          "H8",
+          "H12",
+          "D1",
+          "W1",
+          "MN1"
+        ],
+        "label": "Confirm Timeframe",
+        "description": "Timeframe for entry confirmation (M5/M1)"
+      },
+      "scalp_interval": {
+        "value": 15,
+        "type": "int",
+        "min": 5,
+        "max": 300,
+        "step": 5,
+        "label": "Scalp Check Interval (sec)",
+        "description": "How often to check for new entries"
+      },
+      "trend_interval": {
+        "value": 60,
+        "type": "int",
+        "min": 30,
+        "max": 3600,
+        "step": 30,
+        "label": "Trend Update Interval (sec)",
+        "description": "How often to update trend analysis"
+      }
+    },
+    "parameters": {
+      "ema_fast": {
+        "value": 9,
+        "type": "int",
+        "min": 3,
+        "max": 50,
+        "label": "EMA Fast Period",
+        "description": "Fast EMA for short-term momentum"
+      },
+      "ema_medium": {
+        "value": 20,
+        "type": "int",
+        "min": 5,
+        "max": 100,
+        "label": "EMA Medium Period",
+        "label2": "EMA 20",
+        "description": "Medium EMA for pullback detection"
+      },
+      "ema_slow": {
+        "value": 50,
+        "type": "int",
+        "min": 10,
+        "max": 200,
+        "label": "EMA Slow Period",
+        "description": "Slow EMA for trend confirmation"
+      },
+      "ema_trend": {
+        "value": 200,
+        "type": "int",
+        "min": 50,
+        "max": 500,
+        "label": "EMA Trend Period",
+        "description": "Trend-defining EMA (H4)"
+      },
+      "pullback_max_pips": {
+        "value": 15,
+        "type": "int",
+        "min": 1,
+        "max": 100,
+        "label": "Max Pullback (pips)",
+        "description": "Max distance from EMA20 for entry"
+      },
+      "min_confidence": {
+        "value": 60,
+        "type": "int",
+        "min": 0,
+        "max": 100,
+        "label": "Min Confidence %",
+        "description": "Minimum confidence to take a trade"
+      },
+      "atr_sl_multiplier": {
+        "value": 3.0,
+        "type": "float",
+        "min": 0.5,
+        "max": 10.0,
+        "step": 0.1,
+        "label": "ATR SL Multiplier",
+        "description": "Stop Loss = ATR x this value"
+      },
+      "atr_tp_multiplier": {
+        "value": 5.0,
+        "type": "float",
+        "min": 0.5,
+        "max": 20.0,
+        "step": 0.1,
+        "label": "ATR TP Multiplier",
+        "description": "Take Profit = ATR x this value"
+      },
+      "min_risk_reward": {
+        "value": 1.5,
+        "type": "float",
+        "min": 0.5,
+        "max": 5.0,
+        "step": 0.1,
+        "label": "Min Risk:Reward",
+        "description": "Reject trades below this RR"
+      },
+      "rsi_overbought": {
+        "value": 70,
+        "type": "int",
+        "min": 50,
+        "max": 95,
+        "label": "RSI Overbought",
+        "description": "Skip BUY if RSI above this"
+      },
+      "rsi_oversold": {
+        "value": 30,
+        "type": "int",
+        "min": 5,
+        "max": 50,
+        "label": "RSI Oversold",
+        "description": "Skip SELL if RSI below this"
+      },
+      "max_spread_pips": {
+        "value": 3.0,
+        "type": "float",
+        "min": 0.1,
+        "max": 20.0,
+        "step": 0.1,
+        "label": "Max Spread (pips)",
+        "description": "Skip trade if spread exceeds this"
+      },
+      "max_open_trades": {
+        "value": 2,
+        "type": "int",
+        "min": 1,
+        "max": 10,
+        "label": "Max Open Trades",
+        "description": "Maximum concurrent positions"
+      },
+      "max_trades_per_day": {
+        "value": 10,
+        "type": "int",
+        "min": 1,
+        "max": 50,
+        "label": "Max Trades Per Day",
+        "description": "Stop trading after N trades in a day"
+      },
+      "daily_loss_limit_pct": {
+        "value": 3.0,
+        "type": "float",
+        "min": 0.5,
+        "max": 10.0,
+        "step": 0.5,
+        "label": "Daily Loss Limit %",
+        "description": "Stop trading if daily loss exceeds this"
+      },
+      "loss_streak_reduction_pct": {
+        "value": 50,
+        "type": "int",
+        "min": 0,
+        "max": 100,
+        "label": "Loss Streak Reduction %",
+        "description": "Reduce lot size by this % after consecutive losses (0=disabled)"
+      },
+      "loss_streak_threshold": {
+        "value": 2,
+        "type": "int",
+        "min": 1,
+        "max": 10,
+        "label": "Loss Streak Threshold",
+        "description": "Number of consecutive losses before reducing size"
+      },
+      "win_streak_increase_pct": {
+        "value": 0,
+        "type": "int",
+        "min": 0,
+        "max": 100,
+        "label": "Win Streak Bonus %",
+        "description": "Increase lot size by this % after consecutive wins (0=disabled)"
+      },
+      "win_streak_threshold": {
+        "value": 3,
+        "type": "int",
+        "min": 1,
+        "max": 10,
+        "label": "Win Streak Threshold",
+        "description": "Number of consecutive wins before bonus size"
+      }
+    }
+  },
+  "trend": {
+    "name": "Trend Following",
+    "description": "EMA crossover trend following",
+    "enabled": true,
+    "ai_required": {
+      "value": true,
+      "type": "bool",
+      "label": "Require AI Confirmation",
+      "description": "If true, AI must confirm each trade. If false, trades execute without AI."
+    },
+    "timeframes": {
+      "trend": {
+        "value": "H4",
+        "type": "select",
+        "options": [
+          "M1",
+          "M2",
+          "M3",
+          "M4",
+          "M5",
+          "M6",
+          "M10",
+          "M12",
+          "M15",
+          "M20",
+          "M30",
+          "H1",
+          "H2",
+          "H3",
+          "H4",
+          "H6",
+          "H8",
+          "H12",
+          "D1",
+          "W1",
+          "MN1"
+        ],
+        "label": "Trend Timeframe",
+        "description": "Higher timeframe for trend bias"
+      },
+      "entry": {
+        "value": "M15",
+        "type": "select",
+        "options": [
+          "M1",
+          "M2",
+          "M3",
+          "M4",
+          "M5",
+          "M6",
+          "M10",
+          "M12",
+          "M15",
+          "M20",
+          "M30",
+          "H1",
+          "H2",
+          "H3",
+          "H4",
+          "H6",
+          "H8",
+          "H12",
+          "D1",
+          "W1",
+          "MN1"
+        ],
+        "label": "Entry Timeframe",
+        "description": "Timeframe for crossover signal"
+      },
+      "confirm": {
+        "value": "M5",
+        "type": "select",
+        "options": [
+          "M1",
+          "M2",
+          "M3",
+          "M4",
+          "M5",
+          "M6",
+          "M10",
+          "M12",
+          "M15",
+          "M20",
+          "M30",
+          "H1",
+          "H2",
+          "H3",
+          "H4",
+          "H6",
+          "H8",
+          "H12",
+          "D1",
+          "W1",
+          "MN1"
+        ],
+        "label": "Confirm Timeframe",
+        "description": "Timeframe for confirmation"
+      },
+      "scalp_interval": {
+        "value": 60,
+        "type": "int",
+        "min": 5,
+        "max": 300,
+        "step": 5,
+        "label": "Check Interval (sec)",
+        "description": "How often to check for new entries"
+      },
+      "trend_interval": {
+        "value": 300,
+        "type": "int",
+        "min": 30,
+        "max": 3600,
+        "step": 30,
+        "label": "Trend Update Interval (sec)",
+        "description": "How often to update trend analysis"
+      }
+    },
+    "parameters": {
+      "ema_fast": {
+        "value": 9,
+        "type": "int",
+        "min": 3,
+        "max": 50,
+        "label": "EMA Fast Period"
+      },
+      "ema_slow": {
+        "value": 21,
+        "type": "int",
+        "min": 5,
+        "max": 100,
+        "label": "EMA Slow Period"
+      },
+      "min_confidence": {
+        "value": 50,
+        "type": "int",
+        "min": 0,
+        "max": 100,
+        "label": "Min Confidence %"
+      },
+      "atr_sl_multiplier": {
+        "value": 2.5,
+        "type": "float",
+        "min": 0.5,
+        "max": 10.0,
+        "step": 0.1,
+        "label": "ATR SL Multiplier"
+      },
+      "atr_tp_multiplier": {
+        "value": 6.0,
+        "type": "float",
+        "min": 0.5,
+        "max": 20.0,
+        "step": 0.1,
+        "label": "ATR TP Multiplier"
+      },
+      "min_risk_reward": {
+        "value": 2.0,
+        "type": "float",
+        "min": 0.5,
+        "max": 5.0,
+        "step": 0.1,
+        "label": "Min Risk:Reward"
+      },
+      "rsi_overbought": {
+        "value": 75,
+        "type": "int",
+        "min": 50,
+        "max": 95,
+        "label": "RSI Overbought"
+      },
+      "rsi_oversold": {
+        "value": 25,
+        "type": "int",
+        "min": 5,
+        "max": 50,
+        "label": "RSI Oversold"
+      },
+      "max_spread_pips": {
+        "value": 5.0,
+        "type": "float",
+        "min": 0.1,
+        "max": 20.0,
+        "step": 0.1,
+        "label": "Max Spread (pips)"
+      },
+      "max_open_trades": {
+        "value": 3,
+        "type": "int",
+        "min": 1,
+        "max": 10,
+        "label": "Max Open Trades"
+      },
+      "max_trades_per_day": {
+        "value": 15,
+        "type": "int",
+        "min": 1,
+        "max": 50,
+        "label": "Max Trades Per Day"
+      },
+      "daily_loss_limit_pct": {
+        "value": 3.0,
+        "type": "float",
+        "min": 0.5,
+        "max": 10.0,
+        "step": 0.5,
+        "label": "Daily Loss Limit %"
+      },
+      "loss_streak_reduction_pct": {
+        "value": 40,
+        "type": "int",
+        "min": 0,
+        "max": 100,
+        "label": "Loss Streak Reduction %"
+      },
+      "loss_streak_threshold": {
+        "value": 2,
+        "type": "int",
+        "min": 1,
+        "max": 10,
+        "label": "Loss Streak Threshold"
+      },
+      "win_streak_increase_pct": {
+        "value": 20,
+        "type": "int",
+        "min": 0,
+        "max": 100,
+        "label": "Win Streak Bonus %"
+      },
+      "win_streak_threshold": {
+        "value": 3,
+        "type": "int",
+        "min": 1,
+        "max": 10,
+        "label": "Win Streak Threshold"
+      }
+    }
+  },
+  "ml": {
+    "name": "ML Discovered (Genetic)",
+    "description": "Parameters discovered via genetic algorithm on historical data. No AI tokens, deterministic rules.",
+    "enabled": true,
+    "ai_required": {
+      "value": false,
+      "type": "bool",
+      "label": "Require AI Confirmation",
+      "description": "ML strategies typically don't need AI - but you can add it for extra safety."
+    },
+    "timeframes": {
+      "trend": {
+        "value": "H4",
+        "type": "select",
+        "options": [
+          "M1",
+          "M2",
+          "M3",
+          "M4",
+          "M5",
+          "M6",
+          "M10",
+          "M12",
+          "M15",
+          "M20",
+          "M30",
+          "H1",
+          "H2",
+          "H3",
+          "H4",
+          "H6",
+          "H8",
+          "H12",
+          "D1",
+          "W1",
+          "MN1"
+        ],
+        "label": "Trend Timeframe",
+        "description": "Higher timeframe for trend bias"
+      },
+      "entry": {
+        "value": "M15",
+        "type": "select",
+        "options": [
+          "M1",
+          "M2",
+          "M3",
+          "M4",
+          "M5",
+          "M6",
+          "M10",
+          "M12",
+          "M15",
+          "M20",
+          "M30",
+          "H1",
+          "H2",
+          "H3",
+          "H4",
+          "H6",
+          "H8",
+          "H12",
+          "D1",
+          "W1",
+          "MN1"
+        ],
+        "label": "Entry Timeframe",
+        "description": "Timeframe for crossover signal"
+      },
+      "confirm": {
+        "value": "M5",
+        "type": "select",
+        "options": [
+          "M1",
+          "M2",
+          "M3",
+          "M4",
+          "M5",
+          "M6",
+          "M10",
+          "M12",
+          "M15",
+          "M20",
+          "M30",
+          "H1",
+          "H2",
+          "H3",
+          "H4",
+          "H6",
+          "H8",
+          "H12",
+          "D1",
+          "W1",
+          "MN1"
+        ],
+        "label": "Confirm Timeframe",
+        "description": "Timeframe for confirmation"
+      },
+      "scalp_interval": {
+        "value": 60,
+        "type": "int",
+        "min": 5,
+        "max": 300,
+        "step": 5,
+        "label": "Check Interval (sec)",
+        "description": "How often to check for new entries"
+      },
+      "trend_interval": {
+        "value": 300,
+        "type": "int",
+        "min": 30,
+        "max": 3600,
+        "step": 30,
+        "label": "Trend Update Interval (sec)",
+        "description": "How often to update trend analysis"
+      }
+    },
+    "parameters": {
+      "min_confidence": {
+        "value": 50,
+        "type": "int",
+        "min": 0,
+        "max": 100,
+        "label": "Min Confidence %"
+      },
+      "max_open_trades": {
+        "value": 2,
+        "type": "int",
+        "min": 1,
+        "max": 10,
+        "label": "Max Open Trades"
+      },
+      "max_trades_per_day": {
+        "value": 10,
+        "type": "int",
+        "min": 1,
+        "max": 50,
+        "label": "Max Trades Per Day"
+      },
+      "daily_loss_limit_pct": {
+        "value": 3.0,
+        "type": "float",
+        "min": 0.5,
+        "max": 10.0,
+        "step": 0.5,
+        "label": "Daily Loss Limit %"
+      },
+      "loss_streak_reduction_pct": {
+        "value": 50,
+        "type": "int",
+        "min": 0,
+        "max": 100,
+        "label": "Loss Streak Reduction %"
+      },
+      "loss_streak_threshold": {
+        "value": 2,
+        "type": "int",
+        "min": 1,
+        "max": 10,
+        "label": "Loss Streak Threshold"
+      },
+      "win_streak_increase_pct": {
+        "value": 0,
+        "type": "int",
+        "min": 0,
+        "max": 100,
+        "label": "Win Streak Bonus %"
+      },
+      "win_streak_threshold": {
+        "value": 3,
+        "type": "int",
+        "min": 1,
+        "max": 10,
+        "label": "Win Streak Threshold"
+      }
+    }
+  }
 }

@@ -350,9 +350,17 @@ def api_update_strategy_config():
             if strategy_obj and hasattr(strategy_obj, 'reload_config'):
                 strategy_obj.reload_config(configs)
             # If timeframe changed, apply to engine immediately
+            # Use the UPDATED strategy's config, not the active one
             if param in ['trend', 'entry', 'confirm', 'scalp_interval', 'trend_interval']:
-                if hasattr(engine, '_apply_strategy_timeframes'):
+                if hasattr(engine, '_apply_timeframes_for'):
+                    engine._apply_timeframes_for(strategy)
+                    logger.info(f"Timeframes applied: {engine.timeframes}")
+                elif hasattr(engine, '_apply_strategy_timeframes'):
+                    # Fallback: temporarily switch active to apply this strategy's TFs
+                    saved_active = engine.strategy_manager.active_strategy
+                    engine.strategy_manager.active_strategy = strategy
                     engine._apply_strategy_timeframes()
+                    engine.strategy_manager.active_strategy = saved_active
                     logger.info(f"Timeframes applied: {engine.timeframes}")
         return jsonify({"status": "ok", "strategy": strategy, "param": param, "value": value})
     return jsonify({"error": msg}), 400
