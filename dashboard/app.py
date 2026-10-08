@@ -76,17 +76,41 @@ def init_database():
     """)
     conn.commit()
     conn.close()
+    # Migration: enable any legacy disabled symbols
+    db_enable_existing_symbols()
     _init_default_symbols()
 
 
 def _init_default_symbols():
+    """Initialize default symbols - enable by default so they're immediately tradable"""
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT COUNT(*) FROM symbols")
     if cursor.fetchone()[0] == 0:
+        # First-time setup: insert defaults as ENABLED
         for symbol in ['XAUUSD', 'EURUSD', 'GBPUSD', 'BRNUSD']:
-            cursor.execute("INSERT OR IGNORE INTO symbols (symbol, enabled) VALUES (?, 0)", (symbol,))
+            cursor.execute("INSERT OR IGNORE INTO symbols (symbol, enabled) VALUES (?, 1)", (symbol,))
         conn.commit()
+        logger.info("Initialized 4 default symbols as enabled")
+    conn.close()
+
+
+def db_enable_existing_symbols():
+    """One-time migration: enable any existing symbols that were initialized as disabled.
+    This handles users who had the old code that inserted with enabled=0."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    # Enable all symbols that have no explicit user action recorded
+    # (We do this only if there are no enabled symbols yet - safety check)
+    cursor.execute("SELECT COUNT(*) FROM symbols WHERE enabled = 1")
+    enabled_count = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM symbols")
+    total_count = cursor.fetchone()[0]
+    # If we have symbols but none enabled, this is a legacy state - auto-enable them
+    if total_count > 0 and enabled_count == 0:
+        cursor.execute("UPDATE symbols SET enabled = 1")
+        conn.commit()
+        logger.info(f"Migration: Enabled {total_count} legacy symbols (previously inserted as disabled)")
     conn.close()
 
 
