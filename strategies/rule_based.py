@@ -330,13 +330,19 @@ class TrendFollowingStrategy:
 
 class StrategyManager:
     """Manages multiple strategies and selects best"""
-    
+
     def __init__(self, config: dict = None):
         self.config = config or {}
         self.strategies = {
             "scalp": ScalpStrategy(config),
             "trend": TrendFollowingStrategy(config)
         }
+        # Try to load ML strategy (genetic algorithm discovered parameters)
+        try:
+            from strategies.ml_strategy import MLStrategy
+            self.strategies["ml"] = MLStrategy(config)
+        except Exception as e:
+            logger.warning(f"ML strategy not available: {e}")
         self.active_strategy = self.config.get("strategy", {}).get("active", "scalp")
     
     def get_signal(self, market_data: Dict) -> Dict:

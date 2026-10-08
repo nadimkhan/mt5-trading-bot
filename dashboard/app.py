@@ -326,6 +326,70 @@ def api_set_strategy():
     return jsonify({"status": "ok", "strategy": strategy})
 
 
+@app.route('/api/ml/search', methods=['POST'])
+def api_ml_search():
+    """Run genetic algorithm search to discover optimal strategy parameters"""
+    global engine
+    try:
+        from strategies.ml_searcher import GeneticSearcher
+        data = request.get_json() or {}
+        config = {
+            'population_size': data.get('population_size', 50),
+            'generations': data.get('generations', 20),
+            'min_profit_factor': data.get('min_profit_factor', 1.3),
+            'min_trades': data.get('min_trades', 50),
+        }
+        # Get backtester from engine if available
+        backtester = None
+        if engine and hasattr(engine, 'backtester'):
+            backtester = engine.backtester
+        elif engine and engine.mt5:
+            from backtester.backtester import Backtester
+            backtester = Backtester(engine.mt5, config)
+        searcher = GeneticSearcher(backtester=backtester, config=config)
+        # Use first symbol if available
+        symbol = None
+        if engine and hasattr(engine, 'symbols') and engine.symbols:
+            symbol = engine.symbols[0]
+        # Run search
+        validated = searcher.run_search(symbol=symbol, days=180)
+        # Return results
+        best_pf = max((g.profit_factor for g in validated), default=0)
+        return jsonify({
+            "status": "ok",
+            "validated_count": len(validated),
+            "best_pf": round(best_pf, 2),
+            "genomes": [g.to_dict() for g in validated]
+        })
+    except Exception as e:
+        logger.error(f"ML search failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/ml/genomes', methods=['GET'])
+def api_ml_genomes():
+    """Get list of validated genomes from DB"""
+    try:
+        import sqlite3
+        import os
+        from engine.constants import DB_PATH
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, symbol, ema_fast, ema_slow, profit_factor, total_trades, "
+            "win_rate, max_drawdown, sharpe, generation, validated_at "
+            "FROM ml_genomes ORDER BY profit_factor DESC"
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        cols = ['id', 'symbol', 'ema_fast', 'ema_slow', 'profit_factor',
+                'total_trades', 'win_rate', 'max_drawdown', 'sharpe',
+                'generation', 'validated_at']
+        return jsonify([dict(zip(cols, row)) for row in rows])
+    except Exception as e:
+        return jsonify([])
+
+
 @app.route('/api/start', methods=['POST'])
 def api_start():
     global engine

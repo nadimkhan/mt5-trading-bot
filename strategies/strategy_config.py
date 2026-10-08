@@ -104,6 +104,36 @@ DEFAULT_CONFIGS = {
             "win_streak_increase_pct": {"value": 20, "type": "int", "min": 0, "max": 100, "label": "Win Streak Bonus %"},
             "win_streak_threshold": {"value": 3, "type": "int", "min": 1, "max": 10, "label": "Win Streak Threshold"},
         }
+    },
+    "ml": {
+        "name": "ML Discovered (Genetic)",
+        "description": "Parameters discovered via genetic algorithm on historical data. No AI tokens, deterministic rules.",
+        "enabled": True,
+        "ai_required": {"value": False, "type": "bool",
+                        "label": "Require AI Confirmation",
+                        "description": "ML strategies typically don't need AI - but you can add it for extra safety."},
+        "timeframes": {
+            "trend": {"value": "H4", "type": "select", "options": TIMEFRAME_OPTIONS,
+                      "label": "Trend Timeframe", "description": "Higher timeframe for trend bias"},
+            "entry": {"value": "M15", "type": "select", "options": TIMEFRAME_OPTIONS,
+                      "label": "Entry Timeframe", "description": "Timeframe for crossover signal"},
+            "confirm": {"value": "M5", "type": "select", "options": TIMEFRAME_OPTIONS,
+                        "label": "Confirm Timeframe", "description": "Timeframe for confirmation"},
+            "scalp_interval": {"value": 60, "type": "int", "min": 5, "max": 300, "step": 5,
+                              "label": "Check Interval (sec)", "description": "How often to check for new entries"},
+            "trend_interval": {"value": 300, "type": "int", "min": 30, "max": 3600, "step": 30,
+                               "label": "Trend Update Interval (sec)", "description": "How often to update trend analysis"}
+        },
+        "parameters": {
+            "min_confidence": {"value": 50, "type": "int", "min": 0, "max": 100, "label": "Min Confidence %"},
+            "max_open_trades": {"value": 2, "type": "int", "min": 1, "max": 10, "label": "Max Open Trades"},
+            "max_trades_per_day": {"value": 10, "type": "int", "min": 1, "max": 50, "label": "Max Trades Per Day"},
+            "daily_loss_limit_pct": {"value": 3.0, "type": "float", "min": 0.5, "max": 10.0, "step": 0.5, "label": "Daily Loss Limit %"},
+            "loss_streak_reduction_pct": {"value": 50, "type": "int", "min": 0, "max": 100, "label": "Loss Streak Reduction %"},
+            "loss_streak_threshold": {"value": 2, "type": "int", "min": 1, "max": 10, "label": "Loss Streak Threshold"},
+            "win_streak_increase_pct": {"value": 0, "type": "int", "min": 0, "max": 100, "label": "Win Streak Bonus %"},
+            "win_streak_threshold": {"value": 3, "type": "int", "min": 1, "max": 10, "label": "Win Streak Threshold"},
+        }
     }
 }
 

@@ -214,8 +214,10 @@
                 <div class="strategy-selector">
                     <button class="strategy-btn active" id="btn-scalp" data-strategy="scalp"><span class="strategy-name">Scalp</span><span class="strategy-desc">H4+M15+M1</span></button>
                     <button class="strategy-btn" id="btn-trend" data-strategy="trend"><span class="strategy-name">Trend</span><span class="strategy-desc">EMA Cross</span></button>
+                    <button class="strategy-btn" id="btn-ml" data-strategy="ml"><span class="strategy-name">ML</span><span class="strategy-desc">Genetic</span></button>
                 </div>
                 <button class="sidebar-btn" id="btn-config">Configure Strategies</button>
+                <button class="sidebar-btn" id="btn-ml-search">Run ML Search</button>
             </nav>
         </aside>
 
@@ -284,6 +286,8 @@
         });
         document.getElementById('btn-scalp').addEventListener('click', function() { setStrategy('scalp'); });
         document.getElementById('btn-trend').addEventListener('click', function() { setStrategy('trend'); });
+        document.getElementById('btn-ml').addEventListener('click', function() { setStrategy('ml'); });
+        document.getElementById('btn-ml-search').addEventListener('click', runMLSearch);
         document.getElementById('modal-ok').addEventListener('click', closeModal);
         document.getElementById('symbolModal').addEventListener('click', function(e) { if (e.target === this) closeModal(); });
 
@@ -586,6 +590,31 @@
                     }
                 });
             }
+        }
+
+        function runMLSearch() {
+            if (!confirm('Run genetic algorithm search? This will test 50+ strategies across 20 generations. May take 1-2 minutes.')) return;
+            const btn = document.getElementById('btn-ml-search');
+            const oldText = btn.textContent;
+            btn.textContent = 'Searching...';
+            btn.disabled = true;
+            fetch('/api/ml/search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ generations: 20, population_size: 50 })
+            }).then(r => r.json()).then(data => {
+                btn.textContent = oldText;
+                btn.disabled = false;
+                if (data.error) {
+                    showModal('ML Search failed: ' + data.error);
+                } else {
+                    showModal('ML Search complete! Found ' + data.validated_count + ' validated strategies. Best PF: ' + data.best_pf);
+                }
+            }).catch(err => {
+                btn.textContent = oldText;
+                btn.disabled = false;
+                showModal('ML Search error: ' + err);
+            });
         }
     </script>
 </body>
