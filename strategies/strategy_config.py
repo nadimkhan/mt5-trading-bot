@@ -26,6 +26,9 @@ DEFAULT_CONFIGS = {
         "name": "Scalp Strategy",
         "description": "Multi-timeframe trend + pullback + confirmation",
         "enabled": True,
+        "ai_required": {"value": True, "type": "bool",
+                        "label": "Require AI Confirmation",
+                        "description": "If true, AI must confirm each trade. If false, trades execute without AI."},
         "timeframes": {
             "trend": {"value": "H4", "type": "select", "options": TIMEFRAME_OPTIONS,
                       "label": "Trend Timeframe", "description": "Higher timeframe for trend direction (H4/H1/D1)"},
@@ -68,6 +71,9 @@ DEFAULT_CONFIGS = {
         "name": "Trend Following",
         "description": "EMA crossover trend following",
         "enabled": True,
+        "ai_required": {"value": True, "type": "bool",
+                        "label": "Require AI Confirmation",
+                        "description": "If true, AI must confirm each trade. If false, trades execute without AI."},
         "timeframes": {
             "trend": {"value": "H4", "type": "select", "options": TIMEFRAME_OPTIONS,
                       "label": "Trend Timeframe", "description": "Higher timeframe for trend bias"},
@@ -214,5 +220,20 @@ def update_strategy_param(configs, strategy_name, param_name, new_value):
             return True, "OK"
         except (ValueError, TypeError) as e:
             return False, f"Invalid value type: {e}"
+
+    # Check top-level settings (e.g. ai_required, enabled)
+    if param_name in configs[strategy_name]:
+        param = configs[strategy_name][param_name]
+        if isinstance(param, dict) and 'value' in param:
+            try:
+                val = type(param['value'])(new_value)
+                if 'min' in param and val < param['min']:
+                    return False, f"Value below minimum ({param['min']})"
+                if 'max' in param and val > param['max']:
+                    return False, f"Value above maximum ({param['max']})"
+                param['value'] = val
+                return True, "OK"
+            except (ValueError, TypeError) as e:
+                return False, f"Invalid value type: {e}"
 
     return False, f"Unknown parameter: {param_name}"

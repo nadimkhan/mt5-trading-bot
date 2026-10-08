@@ -795,8 +795,23 @@ class TradingEngine:
                             logger.info(f"{symbol}: REJECTED - RR {rr:.2f} < min {min_rr}")
                             continue
 
-                # Apply AI filter (veto/approve)
-                if self.ai_filter:
+                # Apply AI CONFIRMATION GATE - AI must confirm before trade is allowed
+                # Check if AI is required for this strategy
+                ai_required = True
+                try:
+                    from strategies.strategy_config import load_configs
+                    configs = load_configs()
+                    active = self.strategy_manager.active_strategy if self.strategy_manager else "scalp"
+                    ai_required = configs.get(active, {}).get('ai_required', {}).get('value', True)
+                except Exception:
+                    pass
+
+                if ai_required and not self.ai_filter:
+                    # AI is required but not configured - skip trade
+                    logger.info(f"{symbol}: SKIPPED - AI confirmation required but AI not configured")
+                    continue
+
+                if self.ai_filter and ai_required:
                     news_events = self.news_checker.check_upcoming_news(symbol)
                     ai_result = self.ai_filter.evaluate_setup(
                         symbol=symbol,
@@ -806,18 +821,26 @@ class TradingEngine:
                         regime=regime
                     )
 
-                    # If AI vetoes, skip this setup but log the reason
-                    if not ai_result.get("approved", True):
-                        veto_reason = ai_result.get("reason", "No reason given")
-                        logger.info(f"{symbol}: AI VETOED - {veto_reason}")
-                        # Store veto as a decision so dashboard can show it
+                    ai_action = ai_result.get("action", "HOLD")
+                    ai_confidence = ai_result.get("confidence", 0)
+                    ai_reasoning = ai_result.get("reason", "No reason given")
+                    setup_action = setup.get("signal")  # BUY or SELL from rule-based
+
+                    # If AI is required but not configured (e.g. AI filter disabled due to no key),
+                    # ai_action will be "HOLD" - this is a safety default
+                    # Trade will be skipped (which is the correct behavior when AI is required)
+
+                    # AI must confirm with matching action AND sufficient confidence
+                    ai_min_conf = 50  # Minimum confidence for AI to confirm
+                    if ai_action != setup_action:
+                        logger.info(f"{symbol}: AI REJECTED - system says {setup_action}, AI says {ai_action}: {ai_reasoning}")
                         decisions[symbol] = {
                             "action": "HOLD",
                             "symbol": symbol,
                             "lot_size": 0,
                             "stop_loss_pips": 0,
                             "take_profit_pips": 0,
-                            "reasoning": f"AI VETO: {veto_reason}",
+                            "reasoning": f"AI MISMATCH: system={setup_action}, AI={ai_action} | {ai_reasoning}",
                             "signal": "VETO",
                             "strategy": "rule_based",
                             "confidence": setup_confidence,
@@ -826,9 +849,37 @@ class TradingEngine:
                             "take_profit": None,
                             "market_regime": regime.get("regime") if regime else "UNKNOWN",
                             "vetoed": True,
-                            "veto_reason": veto_reason
+                            "veto_reason": f"AI says {ai_action}, system says {setup_action}",
+                            "ai_action": ai_action,
+                            "ai_confidence": ai_confidence
                         }
                         continue
+
+                    if ai_action == "HOLD" or ai_confidence < ai_min_conf:
+                        logger.info(f"{symbol}: AI REJECTED - HOLD or low conf ({ai_confidence}%): {ai_reasoning}")
+                        decisions[symbol] = {
+                            "action": "HOLD",
+                            "symbol": symbol,
+                            "lot_size": 0,
+                            "stop_loss_pips": 0,
+                            "take_profit_pips": 0,
+                            "reasoning": f"AI SKIP: {ai_reasoning} (conf {ai_confidence}%)",
+                            "signal": "VETO",
+                            "strategy": "rule_based",
+                            "confidence": setup_confidence,
+                            "entry_price": None,
+                            "stop_loss": None,
+                            "take_profit": None,
+                            "market_regime": regime.get("regime") if regime else "UNKNOWN",
+                            "vetoed": True,
+                            "veto_reason": ai_reasoning,
+                            "ai_action": ai_action,
+                            "ai_confidence": ai_confidence
+                        }
+                        continue
+
+                    # AI confirmed! Log it
+                    logger.info(f"{symbol}: AI CONFIRMED {ai_action} (conf {ai_confidence}%): {ai_reasoning}")
 
                     # Apply AI adjustments if any
                     adjustments = ai_result.get("adjustments", {})
@@ -847,7 +898,7 @@ class TradingEngine:
                     "lot_size": setup.get("lot_size", self.config.get("trading", {}).get("default_lot_size", 0.01)),
                     "stop_loss_pips": setup.get("sl_pips", self.config.get("trading", {}).get("default_stop_loss_pips", 30)),
                     "take_profit_pips": setup.get("tp_pips", self.config.get("trading", {}).get("default_take_profit_pips", 50)),
-                    "reasoning": setup.get("reason", "Strategy signal"),
+                    "reasoning": f"AI CONFIRMED: {ai_reasoning}",
                     "signal": action,
                     "strategy": "rule_based",
                     "confidence": setup_confidence,
@@ -855,7 +906,9 @@ class TradingEngine:
                     "stop_loss": setup.get("stop_loss"),
                     "take_profit": setup.get("take_profit"),
                     "market_regime": regime.get("regime") if regime else "UNKNOWN",
-                    "vetoed": False
+                    "vetoed": False,
+                    "ai_action": ai_action,
+                    "ai_confidence": ai_confidence
                 }
 
         except Exception as e:

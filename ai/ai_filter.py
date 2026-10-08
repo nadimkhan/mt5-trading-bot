@@ -40,36 +40,40 @@ class AIFilter:
             regime: Market regime (TRENDING/RANGING)
             
         Returns:
-            Dict with 'approved' bool, 'reason', 'adjustments'
+            Dict with 'action' (BUY/SELL/HOLD), 'confidence', 'reason', 'adjustments'
         """
         if not self.enabled:
-            # No AI - auto-approve
+            # No AI configured - skip trade (HOLD) for safety
             return {
-                "approved": True,
-                "reason": "AI disabled - auto-approved",
+                "action": "HOLD",
+                "approved": False,
+                "confidence": 0,
+                "reason": "AI disabled - no confirmation available",
                 "adjustments": {}
             }
-        
+
         try:
             # Build context for AI
             context = self._build_context(symbol, setup, market_data, news_events, regime)
-            
+
             # Query AI
             response = self._query_ai(context)
-            
+
             # Parse response
             result = self._parse_response(response, setup)
-            
-            logger.info(f"AI Filter: {symbol} {setup.get('signal')} -> {'APPROVED' if result['approved'] else 'VETOED'}: {result['reason']}")
-            
+
+            logger.info(f"AI Filter: {symbol} system={setup.get('signal')} AI={result.get('action', '?')} conf={result.get('confidence', 0)}%: {result.get('reason', '')}")
+
             return result
-            
+
         except Exception as e:
             logger.error(f"AI Filter error: {e}")
-            # On error, default to approve but log
+            # On error, default to HOLD (skip the trade) for safety
             return {
-                "approved": True,
-                "reason": f"AI error ({str(e)[:50]}) - defaulting to approve",
+                "action": "HOLD",
+                "approved": False,
+                "confidence": 0,
+                "reason": f"AI error ({str(e)[:50]}) - HOLDING (safety)",
                 "adjustments": {}
             }
     
@@ -98,15 +102,17 @@ class AIFilter:
         rsi = m15_data.get('rsi', 'N/A')
         spread = m15_data.get('spread', 'N/A')
         
-        context = f"""You are a RISK MANAGER evaluating a trading setup. Your job is to VETO dangerous setups, not approve good ones.
+        context = f"""You are a CONFIRMATION GATE for a trading bot. You must INDEPENDENTLY decide whether to confirm this trade.
 
-SETUP DETAILS:
+The system has identified a setup. Your job is to either CONFIRM or REJECT it. You CANNOT just say "looks good" - you must give your own independent verdict.
+
+SETUP FROM RULE-BASED STRATEGY:
 - Symbol: {symbol}
-- Signal: {signal}
-- Confidence: {confidence}%
-- Entry: {entry}
-- Stop Loss: {sl}
-- Take Profit: {tp}
+- Proposed Signal: {signal} (BUY or SELL)
+- System Confidence: {confidence}%
+- Proposed Entry: {entry}
+- Proposed Stop Loss: {sl}
+- Proposed Take Profit: {tp}
 
 MARKET CONDITIONS:
 - Regime: {regime_text}
@@ -114,19 +120,19 @@ MARKET CONDITIONS:
 - Spread: {spread} pips
 - News: {news_text}
 
-ANALYSIS CHECKLIST:
-1. Is the regime favorable for this direction? (Trending vs Ranging)
-2. Is there high-impact news in the next 2 hours?
-3. Is RSI extreme (overbought >70, oversold <30)?
-4. Is spread unusually wide?
-5. Are there any red flags that should veto this setup?
+YOUR TASK:
+1. INDEPENDENTLY analyze whether to take a {signal} trade on {symbol} right now
+2. Decide YOUR action: BUY, SELL, or HOLD
+3. Your action must match the system's proposal ({signal}) for the trade to proceed
+4. If you think HOLD is safer, return HOLD - trade will be skipped
+5. If you think opposite direction is better, return opposite (e.g., system says BUY, you say SELL) - trade will be skipped
 
-Respond ONLY in JSON format:
-{{"approved": true/false, "reason": "specific reason", "adjustments": {{"sl": new_sl, "tp": new_tp, "lot_size": new_size}}}}
+Respond ONLY in JSON:
+{{"action": "BUY" or "SELL" or "HOLD", "confidence": 0-100, "reason": "your specific reasoning", "adjustments": {{"sl": new_sl, "tp": new_tp}}}}
 
-If you see no major issues, approve. If anything concerns you, veto with specific reason.
+CRITICAL: Your action must be a string, exactly "BUY", "SELL", or "HOLD". No other text.
 JSON response:"""
-        
+
         return context
     
     def _query_ai(self, context: str) -> str:
@@ -193,7 +199,7 @@ JSON response:"""
         return response.choices[0].message.content
     
     def _parse_response(self, response: str, setup: Dict) -> Dict:
-        """Parse AI JSON response"""
+        """Parse AI JSON response - expects action/confidence/reason"""
         try:
             # Try to extract JSON from response
             json_str = response
@@ -201,30 +207,48 @@ JSON response:"""
                 json_str = response.split("```json")[1].split("```")[0]
             elif "```" in response:
                 json_str = response.split("```")[1].split("```")[0]
-            
+
             # Find JSON object
             start = json_str.find("{")
             end = json_str.rfind("}") + 1
             if start >= 0 and end > start:
                 json_str = json_str[start:end]
-            
+
             result = json.loads(json_str)
-            
-            # Validate
-            if not isinstance(result.get("approved"), bool):
-                result["approved"] = True
-                result["reason"] = result.get("reason", "Parse error - approved")
-            
+
+            # Validate action field
+            action = str(result.get("action", "HOLD")).upper().strip()
+            if action not in ["BUY", "SELL", "HOLD"]:
+                action = "HOLD"
+
+            # Validate confidence
+            try:
+                confidence = int(result.get("confidence", 0))
+                confidence = max(0, min(100, confidence))
+            except (ValueError, TypeError):
+                confidence = 0
+
+            result["action"] = action
+            result["confidence"] = confidence
+            # Backwards compat
+            result["approved"] = (action != "HOLD")
+
             if "adjustments" not in result:
                 result["adjustments"] = {}
-            
+
+            if "reason" not in result:
+                result["reason"] = "No reason given"
+
             return result
-            
+
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse AI response: {e}")
+            # On parse error, return HOLD (skip the trade) for safety
             return {
-                "approved": True,
-                "reason": f"Parse error - approving by default",
+                "action": "HOLD",
+                "approved": False,
+                "confidence": 0,
+                "reason": f"Parse error - HOLDING (safety)",
                 "adjustments": {}
             }
 

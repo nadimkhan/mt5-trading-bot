@@ -138,6 +138,7 @@
         .decision-action.hold { background: rgba(148, 163, 184, 0.15); color: var(--text-muted); }
         .decision-action.veto { background: rgba(239, 68, 68, 0.2); color: var(--accent-red); border: 1px solid rgba(239, 68, 68, 0.4); }
         .decision-action.reject { background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); }
+        .decision-action.confirmed { background: rgba(16, 185, 129, 0.2); color: var(--accent-green); border: 1px solid rgba(16, 185, 129, 0.4); animation: pulse 2s infinite; }
         .decision-reason { font-size: 12px; color: var(--text-secondary); line-height: 1.4; }
         .decision-meta { display: flex; gap: 12px; margin-top: 6px; font-size: 11px; color: var(--text-muted); }
         .confidence-bar { width: 60px; height: 4px; background: var(--bg-secondary); border-radius: 2px; overflow: hidden; }
@@ -383,9 +384,22 @@
                 let actionClass = action.toLowerCase();
                 if (d.vetoed) { displayAction = 'VETO'; actionClass = 'veto'; }
                 else if (action === 'HOLD' && d.reasoning && d.reasoning.includes('REJECTED')) { displayAction = 'REJECT'; actionClass = 'reject'; }
+                else if (action === 'HOLD' && d.reasoning && d.reasoning.includes('AI SKIP')) { displayAction = 'AI SKIP'; actionClass = 'reject'; }
+                else if (action === 'HOLD' && d.reasoning && d.reasoning.includes('AI MISMATCH')) { displayAction = 'MISMATCH'; actionClass = 'reject'; }
+                // Check if AI confirmed (action is BUY/SELL and we have ai_action)
+                else if ((action === 'BUY' || action === 'SELL') && d.ai_action) { displayAction = action + ' OK'; actionClass = 'confirmed'; }
                 let reason = d.veto_reason || d.entry_reason || d.reasoning || 'No reasoning';
                 if (reason.length > 120) reason = reason.substring(0, 120) + '...';
-                html += '<div class="decision-item"><div class="decision-header"><span class="decision-symbol">' + (d.symbol || 'N/A') + '</span><span class="decision-action ' + actionClass + '">' + displayAction + '</span></div><div class="decision-reason">' + reason + '</div><div class="decision-meta"><span>' + time + '</span><span>Conf: ' + conf + '%</span><div class="confidence-bar"><div class="confidence-fill ' + confClass + '" style="width:' + conf + '%"></div></div></div></div>';
+                // Add AI sub-info if present
+                let aiInfo = '';
+                if (d.ai_action && action === 'BUY' || action === 'SELL') {
+                    if (d.ai_action && (d.ai_action === 'BUY' || d.ai_action === 'SELL')) {
+                        aiInfo = '<div style="font-size: 10px; color: var(--accent-green); margin-top: 4px;">AI confirmed: ' + d.ai_action + ' (' + (d.ai_confidence || 0) + '%)</div>';
+                    } else if (d.ai_action) {
+                        aiInfo = '<div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">AI: ' + d.ai_action + ' (' + (d.ai_confidence || 0) + '%)</div>';
+                    }
+                }
+                html += '<div class="decision-item"><div class="decision-header"><span class="decision-symbol">' + (d.symbol || 'N/A') + '</span><span class="decision-action ' + actionClass + '">' + displayAction + '</span></div><div class="decision-reason">' + reason + '</div>' + aiInfo + '<div class="decision-meta"><span>' + time + '</span><span>Conf: ' + conf + '%</span><div class="confidence-bar"><div class="confidence-fill ' + confClass + '" style="width:' + conf + '%"></div></div></div></div>';
             });
             container.innerHTML = html;
         }
