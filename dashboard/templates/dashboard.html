@@ -69,16 +69,51 @@
         .live-indicator { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--accent-green); }
         .live-indicator::before { content: ''; width: 6px; height: 6px; background: var(--accent-green); border-radius: 50%; animation: pulse 1.5s infinite; }
 
-        .sidebar { background: var(--bg-secondary); border-right: 1px solid var(--border-color); padding: 24px 16px; overflow-y: auto; }
-        .nav-section { margin-bottom: 32px; }
-        .nav-section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 12px; padding: 0 12px; }
-        .control-group { display: flex; gap: 8px; padding: 0 12px; }
+        .sidebar { background: var(--bg-secondary); border-right: 1px solid var(--border-color); padding: 24px 10px; overflow-y: auto; }
+        .nav-section { margin-bottom: 16px; padding: 0 10px; }
+        .nav-section-title { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 8px; }
+
+        /* Asset picker dropdown */
+        .asset-picker { position: relative; }
+        .asset-picker-toggle { width: 100%; padding: 8px 10px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-family: inherit; font-size: 11px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; transition: all 0.2s; }
+        .asset-picker-toggle:hover { border-color: var(--accent-cyan); }
+        .asset-picker-toggle .arrow { font-size: 9px; color: var(--text-muted); transition: transform 0.2s; }
+        .asset-picker.open .asset-picker-toggle .arrow { transform: rotate(180deg); }
+        .asset-picker-dropdown { display: none; position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px; max-height: 320px; z-index: 100; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4); overflow: hidden; }
+        .asset-picker.open .asset-picker-dropdown { display: flex; flex-direction: column; }
+        .asset-category { padding: 6px 10px; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); background: var(--bg-secondary); border-bottom: 1px solid var(--border-color); }
+        .asset-list { overflow-y: auto; flex: 1; max-height: 240px; }
+        .asset-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; font-size: 11px; border-bottom: 1px solid var(--border-color); transition: background 0.15s; }
+        .asset-item:last-child { border-bottom: none; }
+        .asset-item:hover { background: var(--bg-card-hover); }
+        .asset-item .symbol { font-weight: 600; font-family: 'JetBrains Mono', monospace; }
+        .asset-item .desc { font-size: 9px; color: var(--text-muted); margin-left: 6px; }
+        .asset-item button { padding: 3px 10px; font-size: 10px; font-weight: 600; border: none; border-radius: 4px; cursor: pointer; font-family: inherit; transition: all 0.2s; }
+        .asset-item .btn-add { background: rgba(6, 182, 212, 0.15); color: var(--accent-cyan); border: 1px solid rgba(6, 182, 212, 0.3); }
+        .asset-item .btn-add:hover { background: var(--accent-cyan); color: #000; }
+        .asset-item .btn-added { background: rgba(16, 185, 129, 0.1); color: var(--accent-green); border: 1px solid rgba(16, 185, 129, 0.2); cursor: not-allowed; }
+        .asset-item .btn-remove { background: rgba(239, 68, 68, 0.1); color: var(--accent-red); border: 1px solid rgba(239, 68, 68, 0.2); }
+        .asset-item .btn-remove:hover { background: var(--accent-red); color: #fff; }
+
+        /* Added assets list */
+        .added-assets-box { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px; padding: 8px 10px; margin-top: 8px; }
+        .added-assets-header { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+        .added-assets-header .count { background: var(--accent-cyan); color: #000; padding: 1px 6px; border-radius: 8px; font-size: 9px; font-weight: 700; }
+        .added-asset { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; font-size: 11px; }
+        .added-asset:not(:last-child) { border-bottom: 1px solid var(--border-color); }
+        .added-asset .info { display: flex; align-items: center; gap: 6px; }
+        .added-asset .symbol { font-weight: 600; font-family: 'JetBrains Mono', monospace; }
+        .added-asset .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-green); }
+        .added-asset .remove { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px 6px; font-size: 11px; }
+        .added-asset .remove:hover { color: var(--accent-red); }
+        .empty-assets { font-size: 10px; color: var(--text-muted); text-align: center; padding: 8px 0; font-style: italic; }
+
+        .strategy-selector { display: flex; gap: 8px; }
         .btn { flex: 1; padding: 10px 16px; border: none; border-radius: 8px; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 6px; }
         .btn-start { background: linear-gradient(135deg, var(--accent-green), #059669); color: #fff; }
         .btn-start:hover { box-shadow: 0 4px 20px var(--accent-green-glow); transform: translateY(-1px); }
         .btn-stop { background: var(--bg-card); color: var(--accent-red); border: 1px solid var(--border-color); }
         .btn-stop:hover { background: var(--accent-red); color: #fff; border-color: var(--accent-red); }
-        .strategy-selector { display: flex; gap: 8px; padding: 0 12px; }
         .strategy-btn { flex: 1; padding: 12px 8px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-secondary); color: var(--text-secondary); font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s; text-align: center; }
         .strategy-btn:hover { border-color: var(--accent-cyan); color: var(--accent-cyan); }
         .strategy-btn.active { background: linear-gradient(135deg, rgba(6, 182, 212, 0.15), rgba(139, 92, 246, 0.15)); border-color: var(--accent-cyan); color: var(--accent-cyan); }
@@ -217,6 +252,31 @@
         </header>
 
         <aside class="sidebar">
+            <!-- ASSETS SECTION - first in sidebar -->
+            <nav class="nav-section">
+                <div class="nav-section-title">Assets</div>
+                <div class="asset-picker" id="asset-picker">
+                    <button class="asset-picker-toggle" id="asset-picker-toggle">
+                        <span>+ Add Asset</span>
+                        <span class="arrow">▼</span>
+                    </button>
+                    <div class="asset-picker-dropdown">
+                        <div class="asset-list" id="asset-list">
+                            <div class="empty-assets" style="padding: 20px;">Loading...</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="added-assets-box">
+                    <div class="added-assets-header">
+                        <span>Active</span>
+                        <span class="count" id="asset-count">0</span>
+                    </div>
+                    <div id="added-assets-list">
+                        <div class="empty-assets">No assets added</div>
+                    </div>
+                </div>
+            </nav>
+
             <nav class="nav-section">
                 <div class="nav-section-title">Control</div>
                 <div class="control-group">
@@ -344,7 +404,143 @@
         document.getElementById('modal-ok').addEventListener('click', closeModal);
         document.getElementById('symbolModal').addEventListener('click', function(e) { if (e.target === this) closeModal(); });
 
-        socket.on('connect', () => { loadInitialData(); });
+        socket.on('connect', () => { loadInitialData(); loadAssets(); });
+
+        // ========================================
+        // ASSET PICKER
+        // ========================================
+        let allAssets = [];
+        let addedSymbols = new Set();
+
+        function loadAssets() {
+            // Fetch available symbols and added symbols
+            Promise.all([
+                fetch('/api/symbols/available').then(r => r.ok ? r.json() : []),
+                fetch('/api/symbols').then(r => r.ok ? r.json() : [])
+            ]).then(([available, added]) => {
+                addedSymbols = new Set(added.filter(s => s.enabled).map(s => s.symbol));
+                allAssets = available;
+                renderAssetList(available);
+                renderAddedAssets(added);
+            }).catch(err => {
+                console.error('Failed to load assets:', err);
+                document.getElementById('asset-list').innerHTML = '<div class="empty-assets">Failed to load</div>';
+            });
+        }
+
+        function renderAssetList(assets) {
+            const container = document.getElementById('asset-list');
+            if (!assets || assets.length === 0) {
+                container.innerHTML = '<div class="empty-assets" style="padding: 20px;">Start engine to load symbols</div>';
+                return;
+            }
+            // Categorize
+            const categories = { 'Forex Majors': [], 'Forex Crosses': [], 'Commodities': [], 'Crypto': [], 'Indices': [], 'Other': [] };
+            assets.forEach(sym => {
+                const s = sym.toUpperCase();
+                if (s.includes('USD') && (s.includes('EUR') || s.includes('GBP') || s.includes('JPY') || s.includes('AUD') || s.includes('CAD') || s.includes('CHF') || s.includes('NZD'))) {
+                    categories['Forex Majors'].push(s);
+                } else if (s.includes('USD') || s.match(/[A-Z]{6}/)) {
+                    categories['Forex Crosses'].push(s);
+                } else if (s.includes('BTC') || s.includes('ETH') || s.includes('LTC') || s.includes('XRP')) {
+                    categories['Crypto'].push(s);
+                } else if (s.includes('US') && (s.includes('500') || s.includes('100') || s.includes('30') || s.includes('TECH'))) {
+                    categories['Indices'].push(s);
+                } else if (s.includes('XAU') || s.includes('XAG') || s.includes('OIL') || s.includes('BRN') || s.includes('GOLD') || s.includes('SILVER')) {
+                    categories['Commodities'].push(s);
+                } else {
+                    categories['Other'].push(s);
+                }
+            });
+            let html = '';
+            for (const [cat, syms] of Object.entries(categories)) {
+                if (syms.length === 0) continue;
+                html += '<div class="asset-category">' + cat + '</div>';
+                syms.forEach(sym => {
+                    const isAdded = addedSymbols.has(sym);
+                    const btnClass = isAdded ? 'btn-added' : 'btn-add';
+                    const btnText = isAdded ? 'Added' : 'Add';
+                    const disabled = isAdded ? 'disabled' : '';
+                    html += '<div class="asset-item"><div><span class="symbol">' + sym + '</span></div>' +
+                            '<button class="' + btnClass + '" data-symbol="' + sym + '" ' + disabled + '>' + btnText + '</button></div>';
+                });
+            }
+            container.innerHTML = html;
+            // Wire up add buttons
+            container.querySelectorAll('.btn-add').forEach(btn => {
+                btn.addEventListener('click', e => {
+                    e.stopPropagation();
+                    const sym = e.target.dataset.symbol;
+                    addAsset(sym);
+                });
+            });
+        }
+
+        function renderAddedAssets(assets) {
+            const container = document.getElementById('added-assets-list');
+            const countEl = document.getElementById('asset-count');
+            const enabled = assets.filter(a => a.enabled);
+            countEl.textContent = enabled.length;
+            if (enabled.length === 0) {
+                container.innerHTML = '<div class="empty-assets">No assets added</div>';
+                return;
+            }
+            let html = '';
+            enabled.forEach(a => {
+                html += '<div class="added-asset">' +
+                            '<div class="info"><span class="status-dot"></span><span class="symbol">' + a.symbol + '</span></div>' +
+                            '<button class="remove" data-symbol="' + a.symbol + '" title="Remove">×</button>' +
+                        '</div>';
+            });
+            container.innerHTML = html;
+            container.querySelectorAll('.remove').forEach(btn => {
+                btn.addEventListener('click', e => {
+                    const sym = e.target.dataset.symbol;
+                    removeAsset(sym);
+                });
+            });
+        }
+
+        function addAsset(symbol) {
+            fetch('/api/symbols/add', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ symbol: symbol })
+            }).then(r => r.json()).then(data => {
+                if (data.error) {
+                    showModal('Error: ' + data.error);
+                } else {
+                    loadAssets();  // Reload both lists
+                }
+            });
+        }
+
+        function removeAsset(symbol) {
+            fetch('/api/symbols/remove', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ symbol: symbol })
+            }).then(r => r.json()).then(data => {
+                if (data.error) {
+                    showModal('Error: ' + data.error);
+                } else {
+                    loadAssets();
+                }
+            });
+        }
+
+        // Toggle asset dropdown
+        document.getElementById('asset-picker-toggle').addEventListener('click', function(e) {
+            e.stopPropagation();
+            document.getElementById('asset-picker').classList.toggle('open');
+        });
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(e) {
+            const picker = document.getElementById('asset-picker');
+            if (picker && !picker.contains(e.target)) {
+                picker.classList.remove('open');
+            }
+        });
         socket.on('status_update', (data) => { updateStatus(data); });
         socket.on('decisions_update', (decisions) => { updateDecisions(decisions); });
         socket.on('positions_update', (positions) => { updatePositions(positions); });

@@ -461,6 +461,115 @@ def api_start():
     return jsonify({"status": "already running"})
 
 
+@app.route('/api/symbols/available', methods=['GET'])
+def api_symbols_available():
+    """Get list of all available symbols from MT5"""
+    try:
+        if engine and engine.mt5:
+            symbols = engine.mt5.get_symbols_list()
+            if symbols:
+                return jsonify(symbols[:200])  # Limit to 200
+        # Fallback: return common defaults
+        return jsonify([
+            'EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'USDCHF', 'NZDUSD',
+            'EURJPY', 'GBPJPY', 'EURGBP', 'AUDJPY', 'EURAUD', 'GBPCHF',
+            'XAUUSD', 'XAGUSD', 'BRNUSD', 'USOUSD',
+            'BTCUSD', 'ETHUSD',
+            'US500', 'US100', 'US30', 'DE40', 'UK100'
+        ])
+    except Exception as e:
+        logger.error(f"Failed to get available symbols: {e}")
+        return jsonify([])
+
+
+@app.route('/api/symbols', methods=['GET'])
+def api_symbols():
+    """Get all configured symbols with enabled status"""
+    from engine.trading_engine import get_db_connection
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT symbol, enabled FROM symbols ORDER BY symbol")
+    rows = cursor.fetchall()
+    conn.close()
+    return jsonify([{"symbol": r["symbol"], "enabled": bool(r["enabled"])} for r in rows])
+
+
+@app.route('/api/symbols/selected', methods=['GET'])
+def api_symbols_selected():
+    """Get currently enabled symbols (simple list)"""
+    from engine.trading_engine import get_db_connection
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT symbol FROM symbols WHERE enabled = 1 ORDER BY symbol")
+    symbols = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    return jsonify(symbols)
+
+
+@app.route('/api/symbols/select', methods=['POST'])
+def api_symbols_select():
+    """Update which symbols are enabled"""
+    data = request.get_json()
+    symbols = data.get('symbols', [])
+    from engine.trading_engine import get_db_connection
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE symbols SET enabled = 0")
+    for symbol in symbols:
+        cursor.execute("UPDATE symbols SET enabled = 1 WHERE symbol = ?", (symbol,))
+    conn.commit()
+    conn.close()
+    global engine
+    if engine and hasattr(engine, 'symbols'):
+        engine.symbols = symbols
+    return jsonify({"status": "ok", "symbols": symbols})
+
+
+@app.route('/api/symbols/add', methods=['POST'])
+def api_symbols_add():
+    """Add a new symbol to the watchlist"""
+    from engine.trading_engine import get_db_connection
+    data = request.get_json()
+    symbol = data.get('symbol', '').upper().strip()
+    if not symbol:
+        return jsonify({"error": "No symbol provided"}), 400
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    # Insert or update - default enabled=1 (user wants to trade it)
+    cursor.execute(
+        "INSERT INTO symbols (symbol, enabled) VALUES (?, 1) "
+        "ON CONFLICT(symbol) DO UPDATE SET enabled = 1",
+        (symbol,)
+    )
+    conn.commit()
+    conn.close()
+    # Update engine symbols list
+    global engine
+    if engine and hasattr(engine, 'symbols') and symbol not in engine.symbols:
+        engine.symbols.append(symbol)
+    return jsonify({"status": "ok", "symbol": symbol})
+
+
+@app.route('/api/symbols/remove', methods=['POST'])
+def api_symbols_remove():
+    """Remove a symbol from the watchlist (or disable it)"""
+    from engine.trading_engine import get_db_connection
+    data = request.get_json()
+    symbol = data.get('symbol', '').upper().strip()
+    if not symbol:
+        return jsonify({"error": "No symbol provided"}), 400
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    # Just disable, don't delete (preserves history)
+    cursor.execute("UPDATE symbols SET enabled = 0 WHERE symbol = ?", (symbol,))
+    conn.commit()
+    conn.close()
+    global engine
+    if engine and hasattr(engine, 'symbols') and symbol in engine.symbols:
+        engine.symbols.remove(symbol)
+    return jsonify({"status": "ok", "symbol": symbol})
+
+
 @app.route('/api/stop', methods=['POST'])
 def api_stop():
     global engine
