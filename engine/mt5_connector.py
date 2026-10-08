@@ -398,6 +398,9 @@ class MT5Connector:
                 logger.error(f"Position {ticket} not found for SL modification")
                 return False
             pos = position[0]
+            # Skip if SL is already at the target value (avoid "No changes" roundtrip)
+            if pos.sl and abs(pos.sl - new_sl) < 0.00001:
+                return True
             # Get symbol's minimum stop level
             symbol_info = mt5.symbol_info(pos.symbol)
             if symbol_info:
@@ -422,8 +425,12 @@ class MT5Connector:
                 "tp": new_tp if new_tp else pos.tp,
             }
             result = mt5.order_send(request)
-            if result and result.retcode == mt5.TRADE_RETCODE_DONE:
-                logger.info(f"SL modified for {ticket}: new SL={new_sl}")
+            # 10009 = success, 10025 = "No changes" (also success - SL already at target)
+            if result and result.retcode in (mt5.TRADE_RETCODE_DONE, 10025):
+                if result.retcode == 10025:
+                    logger.debug(f"SL already at target for {ticket}: {new_sl}")
+                else:
+                    logger.info(f"SL modified for {ticket}: new SL={new_sl}")
                 return True
             else:
                 retcode = result.retcode if result else 'no result'
