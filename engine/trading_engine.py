@@ -711,14 +711,17 @@ class TradingEngine:
 
         # Calculate indicators and analysis
         analysis = analyze_market(closes, highs, lows, timeframe)
-        # Inject volume data
+        # Inject OHLCV data so strategy can re-compute indicators
         if analysis is not None:
             analysis["volumes"] = volumes
+            analysis["highs"] = highs
+            analysis["lows"] = lows
+            analysis["closes"] = closes
             if price_info:
                 analysis["bid"] = price_info["bid"]
                 analysis["ask"] = price_info["ask"]
             analysis["spread"] = round((price_info["ask"] - price_info["bid"]) * 10000, 1)
-            
+
         return analysis
 
     def _get_ai_decision(self):
