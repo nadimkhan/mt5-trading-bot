@@ -668,7 +668,7 @@ class GeneticSearcher:
         for symbol in symbols:
             all_data[symbol] = {}
             for tf in timeframes:
-                bars = self._get_bars_for_symbol(symbol, tf, days)
+                bars = self._get_mt5_bars(symbol, tf, days)
                 if bars and len(bars) >= 100:
                     all_data[symbol][tf] = bars
                 else:
