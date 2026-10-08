@@ -86,7 +86,7 @@
         .asset-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; font-size: 11px; border-bottom: 1px solid var(--border-color); transition: background 0.15s; }
         .asset-item:last-child { border-bottom: none; }
         .asset-item:hover { background: var(--bg-card-hover); }
-        .asset-item .symbol { font-weight: 600; font-family: 'JetBrains Mono', monospace; }
+        .asset-item .symbol { font-weight: 400; font-family: 'JetBrains Mono', monospace; }
         .asset-item .desc { font-size: 9px; color: var(--text-muted); margin-left: 6px; }
         .asset-item button { padding: 3px 10px; font-size: 10px; font-weight: 600; border: none; border-radius: 4px; cursor: pointer; font-family: inherit; transition: all 0.2s; }
         .asset-item .btn-add { background: rgba(6, 182, 212, 0.15); color: var(--accent-cyan); border: 1px solid rgba(6, 182, 212, 0.3); }
@@ -111,9 +111,21 @@
         .strategy-selector { display: flex; gap: 8px; }
         .btn { flex: 1; padding: 10px 16px; border: none; border-radius: 8px; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 6px; }
         .btn-start { background: linear-gradient(135deg, var(--accent-green), #059669); color: #fff; }
-        .btn-start:hover { box-shadow: 0 4px 20px var(--accent-green-glow); transform: translateY(-1px); }
+        .btn-start:hover:not(:disabled) { box-shadow: 0 4px 20px var(--accent-green-glow); transform: translateY(-1px); }
+        .btn-start:disabled { background: var(--bg-secondary); color: var(--text-muted); cursor: not-allowed; opacity: 0.5; }
         .btn-stop { background: var(--bg-card); color: var(--accent-red); border: 1px solid var(--border-color); }
-        .btn-stop:hover { background: var(--accent-red); color: #fff; border-color: var(--accent-red); }
+        .btn-stop:hover:not(:disabled) { background: var(--accent-red); color: #fff; border-color: var(--accent-red); }
+        .btn-stop:disabled { background: var(--bg-secondary); color: var(--text-muted); border-color: var(--border-color); cursor: not-allowed; opacity: 0.5; }
+
+        /* Header control buttons (smaller) */
+        .header-controls { display: flex; gap: 8px; align-items: center; }
+        .header-btn { padding: 8px 16px; border: 1px solid var(--border-color); border-radius: 6px; font-family: inherit; font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.2s; min-width: 80px; }
+        .header-btn-start { background: var(--accent-green); color: #000; border-color: var(--accent-green); }
+        .header-btn-start:hover:not(:disabled) { background: #059669; box-shadow: 0 0 12px var(--accent-green-glow); }
+        .header-btn-start:disabled { background: var(--bg-secondary); color: var(--text-muted); border-color: var(--border-color); cursor: not-allowed; opacity: 0.5; }
+        .header-btn-stop { background: var(--bg-card); color: var(--accent-red); border-color: var(--border-color); }
+        .header-btn-stop:hover:not(:disabled) { background: var(--accent-red); color: #fff; border-color: var(--accent-red); }
+        .header-btn-stop:disabled { background: var(--bg-secondary); color: var(--text-muted); border-color: var(--border-color); cursor: not-allowed; opacity: 0.5; }
         .strategy-btn { flex: 1; padding: 12px 8px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-secondary); color: var(--text-secondary); font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s; text-align: center; }
         .strategy-btn:hover { border-color: var(--accent-cyan); color: var(--accent-cyan); }
         .strategy-btn.active { background: linear-gradient(135deg, rgba(6, 182, 212, 0.15), rgba(139, 92, 246, 0.15)); border-color: var(--accent-cyan); color: var(--accent-cyan); }
@@ -248,7 +260,11 @@
                 <div class="status-badge"><span class="status-dot" id="status-dot"></span><span id="engine-status">STOPPED</span></div>
                 <div class="live-indicator">LIVE</div>
             </div>
-            <div class="header-right"><div class="time-display" id="time-display">--:--:--</div></div>
+            <div class="header-controls">
+                <button class="header-btn header-btn-start" id="btn-start">Start</button>
+                <button class="header-btn header-btn-stop" id="btn-stop" disabled>Stop</button>
+                <div class="time-display" id="time-display">--:--:--</div>
+            </div>
         </header>
 
         <aside class="sidebar">
@@ -277,13 +293,6 @@
                 </div>
             </nav>
 
-            <nav class="nav-section">
-                <div class="nav-section-title">Control</div>
-                <div class="control-group">
-                    <button class="btn btn-start" id="btn-start">Start</button>
-                    <button class="btn btn-stop" id="btn-stop">Stop</button>
-                </div>
-            </nav>
             <nav class="nav-section">
                 <div class="nav-section-title">Strategy</div>
                 <div class="strategy-selector">
@@ -595,6 +604,27 @@
             else if (status === 'READY' || status === 'RUNNING') dot.classList.add('running');
             else if (status === 'ERROR') dot.classList.add('error');
             else dot.classList.add('ready');
+
+            // Enable/disable Start and Stop buttons based on engine state
+            const startBtn = document.getElementById('btn-start');
+            const stopBtn = document.getElementById('btn-stop');
+            const isRunning = ['INITIALIZING', 'READY', 'RUNNING'].includes(status);
+            if (isRunning) {
+                startBtn.disabled = true;
+                startBtn.textContent = 'Running';
+                stopBtn.disabled = false;
+                stopBtn.textContent = 'Stop';
+            } else if (status === 'ERROR') {
+                startBtn.disabled = false;
+                startBtn.textContent = 'Retry';
+                stopBtn.disabled = true;
+                stopBtn.textContent = 'Stop';
+            } else {
+                startBtn.disabled = false;
+                startBtn.textContent = 'Start';
+                stopBtn.disabled = true;
+                stopBtn.textContent = 'Stop';
+            }
         }
 
         function updateAnalytics(analytics) {
