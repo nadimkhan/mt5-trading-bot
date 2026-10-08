@@ -106,6 +106,10 @@
 
 ## REMAINING BACKEND FEATURES (Future)
 
+### Debugging & Diagnostics (URGENT - investigate why bot isn't trading)
+- [ ] **Investigate: why trades are not happening** - Add diagnostic endpoint showing all filter rejections, current state of each symbol, why no signals pass
+- [ ] **Investigate: why AI decisions are not showing up** - Check if AI is firing, why decisions aren't being broadcast, debug the decision flow
+
 ### Risk Management
 - [ ] Correlation exposure dashboard
 - [ ] Risk per trade percentage display
