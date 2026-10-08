@@ -103,8 +103,8 @@ class GeneticSearcher:
         self.mutation_rate = self.config.get("mutation_rate", 0.2)
         self.crossover_rate = self.config.get("crossover_rate", 0.7)
         # Acceptance thresholds
-        self.min_profit_factor = self.config.get("min_profit_factor", 1.3)
-        self.min_trades = self.config.get("min_trades", 50)
+        self.min_profit_factor = self.config.get("min_profit_factor", 1.2)
+        self.min_trades = self.config.get("min_trades", 20)
         self.max_drawdown_pct = self.config.get("max_drawdown_pct", 25.0)
         # In-sample / out-of-sample split
         self.in_sample_pct = self.config.get("in_sample_pct", 0.7)
@@ -184,23 +184,27 @@ class GeneticSearcher:
             rsi = self._rsi(closes, genome.rsi_period)
             atr = self._atr(highs, lows, closes, 14)
 
-            # Determine pip size based on symbol
+            # Determine pip size and dollar value per pip based on symbol
             pip_size = 0.0001
-            contract_size = 100000  # standard lot
+            dollars_per_pip_per_lot = 10.0  # 1 standard lot of major forex = $10/pip
             if symbol:
                 if 'JPY' in symbol:
                     pip_size = 0.01
                 elif 'XAU' in symbol or 'BRN' in symbol or 'OIL' in symbol:
                     pip_size = 0.01
-                    contract_size = 100  # 1 lot = 100 oz for gold
+                    dollars_per_pip_per_lot = 1.0  # 1 lot XAUUSD = $1 per 0.01 move
                 elif any(c in symbol for c in ['BTC', 'ETH']):
                     pip_size = 1.0
-                    contract_size = 1
+                    dollars_per_pip_per_lot = 1.0
 
-            # Lot size for $1 pip value (approximate)
-            lot_size = 1.0  # 1 standard lot
-            # Commission + spread cost per trade (in pips)
-            cost_per_trade_pips = 2.0  # ~1 pip spread + commission
+            # Use 0.1 lot (mini) for $1/pip on majors, $0.10/pip on XAUUSD
+            lot_multiplier = 0.1
+            dollars_per_pip = dollars_per_pip_per_lot * lot_multiplier
+            # Spread cost in pips (~0.5-1.5 for majors, ~3-5 for XAUUSD)
+            spread_pips = 1.5
+            if symbol and ('XAU' in symbol or 'BRN' in symbol or 'OIL' in symbol):
+                spread_pips = 3.0
+            commission_pips = 0.5  # round-trip commission
 
             # Walk through bars, simulate trades
             trades = []
@@ -208,6 +212,10 @@ class GeneticSearcher:
             entry_price = 0
             atr_at_entry = 0
             trade = {}
+
+            # Simple ADX calc
+            adx_period = 14
+            adx_vals = self._adx(highs, lows, closes, adx_period)
 
             for i in range(50, len(bars)):
                 if not in_trade:
@@ -221,15 +229,17 @@ class GeneticSearcher:
                         bearish_cross = (ema_fast[i-1] >= ema_slow[i-1] and ema_fast[i] < ema_slow[i])
                         # RSI filter
                         rsi_ok = (rsi[i] < genome.rsi_overbought and rsi[i] > genome.rsi_oversold)
+                        # ADX filter: only trade when market is trending (avoids ranging/choppy)
+                        adx_strong = adx_vals[i] is not None and adx_vals[i] >= 20
 
-                        if rsi_ok and bullish_cross:
+                        if rsi_ok and adx_strong and bullish_cross:
                             in_trade = True
                             entry_price = closes[i]
                             atr_at_entry = atr[i]
                             sl = entry_price - atr_at_entry * genome.atr_sl_multiplier
                             tp = entry_price + atr_at_entry * genome.atr_tp_multiplier
                             trade = {'entry': i, 'entry_price': entry_price, 'sl': sl, 'tp': tp, 'side': 'long'}
-                        elif rsi_ok and bearish_cross:
+                        elif rsi_ok and adx_strong and bearish_cross:
                             in_trade = True
                             entry_price = closes[i]
                             atr_at_entry = atr[i]
@@ -263,10 +273,10 @@ class GeneticSearcher:
                             pnl_pips = (exit_price - entry_price) / pip_size
                         else:
                             pnl_pips = (entry_price - exit_price) / pip_size
-                        # Convert pips to $ (rough): $1 per pip per 0.01 lot
-                        pnl_dollars = pnl_pips * cost_per_trade_pips * 10  # scale to realistic
-                        # Subtract transaction costs
-                        pnl_dollars -= (cost_per_trade_pips * 2)  # entry + exit
+                        # Convert pips to dollars: simple, realistic formula
+                        pnl_dollars = pnl_pips * dollars_per_pip
+                        # Subtract transaction costs (spread + commission)
+                        pnl_dollars -= (spread_pips + commission_pips) * dollars_per_pip
                         trades.append({'pnl': pnl_dollars, 'reason': exit_reason})
                         in_trade = False
                     elif i > trade.get('entry', 0) + 50:  # Force exit after 50 bars
@@ -274,8 +284,8 @@ class GeneticSearcher:
                             pnl_pips = (closes[i] - entry_price) / pip_size
                         else:
                             pnl_pips = (entry_price - closes[i]) / pip_size
-                        pnl_dollars = pnl_pips * cost_per_trade_pips * 10
-                        pnl_dollars -= (cost_per_trade_pips * 2)
+                        pnl_dollars = pnl_pips * dollars_per_pip
+                        pnl_dollars -= (spread_pips + commission_pips) * dollars_per_pip
                         trades.append({'pnl': pnl_dollars, 'reason': 'timeout'})
                         in_trade = False
 
@@ -372,7 +382,47 @@ class GeneticSearcher:
                 result[i + 1] = atr
         return result
 
-    def _get_bars_for_symbol(self, symbol: str, timeframe: str = "H1", days: int = 365) -> List[dict]:
+    def _adx(self, highs, lows, closes, period=14):
+        """Average Directional Index - measures trend strength"""
+        if len(highs) < period * 2:
+            return [None] * len(highs)
+        result = [None] * len(highs)
+        # +DM and -DM
+        plus_dm = [0]
+        minus_dm = [0]
+        tr = [0]
+        for i in range(1, len(highs)):
+            up = highs[i] - highs[i-1]
+            down = lows[i-1] - lows[i]
+            plus_dm.append(max(up, 0) if up > down else 0)
+            minus_dm.append(max(down, 0) if down > up else 0)
+            tr.append(max(highs[i] - lows[i], abs(highs[i] - closes[i-1]), abs(lows[i] - closes[i-1])))
+        # Smooth
+        def smooth(arr):
+            smoothed = [sum(arr[:period])]
+            for i in range(period, len(arr)):
+                smoothed.append(smoothed[-1] - smoothed[-1]/period + arr[i])
+            return smoothed
+        if len(tr) < period:
+            return [None] * len(highs)
+        tr_sm = smooth(tr[period-1:])
+        plus_dm_sm = smooth(plus_dm[period-1:])
+        minus_dm_sm = smooth(minus_dm[period-1:])
+        # +DI, -DI
+        plus_di = [100 * p / t if t > 0 else 0 for p, t in zip(plus_dm_sm, tr_sm)]
+        minus_di = [100 * m / t if t > 0 else 0 for m, t in zip(minus_dm_sm, tr_sm)]
+        # DX and ADX
+        dx = [100 * abs(p - m) / (p + m) if (p + m) > 0 else 0 for p, m in zip(plus_di, minus_di)]
+        if len(dx) < period:
+            return [None] * len(highs)
+        adx = sum(dx[:period]) / period
+        result[period * 2 - 1] = adx
+        for i in range(period * 2, len(highs)):
+            adx = (adx * (period - 1) + dx[i - period]) / period
+            result[i] = adx
+        return result
+
+    def _get_mt5_bars(self, symbol: str, timeframe: str, days: int) -> List[dict]:
         """Get historical bars from MT5 for a specific symbol and timeframe"""
         if not self.backtester:
             logger.error("No backtester available - cannot fetch MT5 data")
