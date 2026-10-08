@@ -306,7 +306,7 @@
         </aside>
 
         <main class="main">
-            <h1 class="page-title">Dashboard</h1>
+            <h1 class="page-title">Dashboard <span style="font-size: 10px; color: var(--text-muted); font-weight: 400; font-family: 'JetBrains Mono', monospace; margin-left: 8px;">v2.0</span></h1>
 
             <div class="stats-grid">
                 <div class="stat-card"><div class="stat-label">Total P&L</div><div class="stat-value" id="stat-pnl">$0.00</div></div>
@@ -357,6 +357,8 @@
 
     <script>
         const socket = io();
+        console.log('%cMT5TB Dashboard v2.0', 'color: #06b6d4; font-weight: bold; font-size: 14px;');
+        console.log('If you see old UI, hard-refresh: Ctrl+Shift+R (Windows) or Cmd+Shift+R (Mac)');
 
         // ========================================
         // UTILITIES

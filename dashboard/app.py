@@ -142,7 +142,7 @@ def db_get_analytics():
 def add_no_cache_headers(response):
     """Prevent caching of dashboard files so UI changes appear without restart"""
     if response.content_type and ('html' in response.content_type or 'css' in response.content_type or 'javascript' in response.content_type):
-        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0, post-check=0, pre-check=0'
         response.headers['Pragma'] = 'no-cache'
         response.headers['Expires'] = '0'
     return response
