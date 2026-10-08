@@ -23,9 +23,17 @@ class MLStrategy:
     Falls back to default parameters if no genome is found.
     """
 
-    def __init__(self, config: dict = None, symbol: str = None):
+    def __init__(self, config: dict = None, symbol: str = None, timeframes: dict = None):
         self.config = config or {}
         self.symbol = symbol
+        # Get timeframes from config or use sensible defaults for ML
+        if timeframes is None:
+            timeframes = self.config.get('timeframes', {})
+        self.timeframes = {
+            'trend': timeframes.get('trend', 'H4'),
+            'entry': timeframes.get('entry', 'M15'),
+            'confirm': timeframes.get('confirm', 'M5')
+        }
         # Try to load best genome from DB
         self.genome = GeneticSearcher.load_best_genome(symbol)
         if self.genome:
@@ -42,21 +50,30 @@ class MLStrategy:
     def check_setup(self, market_data: Dict) -> Dict:
         """
         Check for entry using ML-discovered parameters.
+        Uses the configured timeframes (trend, entry, confirm) instead of hardcoded ones.
         Returns: signal dict with 'signal', 'confidence', 'reason'
         """
-        # Use M5 for entry
-        m5 = market_data.get('M5', {})
-        if not m5:
-            return {"signal": "HOLD", "confidence": 0, "reason": "No M5 data"}
+        # Use the configured ENTRY timeframe for signals
+        entry_tf = self.timeframes['entry']
+        confirm_tf = self.timeframes['confirm']
+        trend_tf = self.timeframes['trend']
 
-        closes = m5.get('closes', [])
-        highs = m5.get('highs', [])
-        lows = m5.get('lows', [])
+        # Get data from configured timeframes
+        trend_data = market_data.get(trend_tf, {})
+        entry_data = market_data.get(entry_tf, {})
+        confirm_data = market_data.get(confirm_tf, {})
+
+        if not entry_data:
+            return {"signal": "HOLD", "confidence": 0, "reason": f"No {entry_tf} data"}
+
+        closes = entry_data.get('closes', [])
+        highs = entry_data.get('highs', [])
+        lows = entry_data.get('lows', [])
 
         if len(closes) < max(self.genome.ema_slow, self.genome.rsi_period) + 10:
             return {"signal": "HOLD", "confidence": 0, "reason": "Insufficient data"}
 
-        # Compute indicators
+        # Compute indicators on ENTRY timeframe
         ema_fast = self._ema(closes, self.genome.ema_fast)
         ema_slow = self._ema(closes, self.genome.ema_slow)
         rsi = self._rsi(closes, self.genome.rsi_period)

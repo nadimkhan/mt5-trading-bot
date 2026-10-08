@@ -20,8 +20,16 @@ class ScalpStrategy:
     3. M1: Confirmation candle in direction of trend
     """
     
-    def __init__(self, config: dict = None):
+    def __init__(self, config: dict = None, timeframes: dict = None):
         self.config = config or {}
+        # Get timeframes from config or use sensible defaults
+        if timeframes is None:
+            timeframes = self.config.get('timeframes', {})
+        self.timeframes = {
+            'trend': timeframes.get('trend', 'H4'),
+            'entry': timeframes.get('entry', 'M15'),
+            'confirm': timeframes.get('confirm', 'M1')
+        }
         # Load saved values from disk if available
         try:
             from strategies.strategy_config import load_configs, get_strategy_param
@@ -93,13 +101,13 @@ class ScalpStrategy:
         Returns:
             Dict with 'signal' (BUY/SELL/HOLD), 'confidence', 'reason'
         """
-        h4 = market_data.get('H4', {})
-        m15 = market_data.get('M15', {})
-        m5 = market_data.get('M5', {})
-        m1 = market_data.get('M1', {})
-        
+        h4 = market_data.get(self.timeframes['trend'], {})
+        m15 = market_data.get(self.timeframes['entry'], {})
+        m5 = market_data.get(self.timeframes['confirm'], {})
+        m1 = market_data.get(self.timeframes['confirm'], {})
+
         if not all([h4, m15, m5, m1]):
-            return {"signal": "HOLD", "confidence": 0, "reason": "Insufficient data"}
+            return {"signal": "HOLD", "confidence": 0, "reason": f"Insufficient data (need {self.timeframes['trend']}, {self.timeframes['entry']}, {self.timeframes['confirm']})"}
         
         # Step 1: H4 Trend Check
         h4_trend = self._check_trend(h4, 'H4')
@@ -333,14 +341,16 @@ class StrategyManager:
 
     def __init__(self, config: dict = None):
         self.config = config or {}
+        # Get timeframes from config to pass to strategies
+        tfs = self.config.get('timeframes', {})
         self.strategies = {
-            "scalp": ScalpStrategy(config),
-            "trend": TrendFollowingStrategy(config)
+            "scalp": ScalpStrategy(config, timeframes=tfs),
+            "trend": TrendFollowingStrategy(config, timeframes=tfs)
         }
         # Try to load ML strategy (genetic algorithm discovered parameters)
         try:
             from strategies.ml_strategy import MLStrategy
-            self.strategies["ml"] = MLStrategy(config)
+            self.strategies["ml"] = MLStrategy(config, timeframes=tfs)
         except Exception as e:
             logger.warning(f"ML strategy not available: {e}")
         # Determine active strategy: config > persisted > default
