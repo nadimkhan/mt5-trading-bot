@@ -247,6 +247,10 @@
         .sidebar-btn { width: 100%; margin: 6px 0; padding: 8px 10px; background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 6px; font-family: inherit; font-size: 11px; font-weight: 500; cursor: pointer; transition: all 0.2s; display: block; }
         .sidebar-btn:hover:not(:disabled) { border-color: var(--accent-purple); color: var(--accent-purple); background: rgba(139, 92, 246, 0.1); }
         .sidebar-btn:disabled { background: var(--bg-secondary); color: var(--text-muted); border-color: var(--border-color); cursor: not-allowed; opacity: 0.4; }
+        .ml-search-row { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
+        .ml-search-row .tf-select { flex: 0 0 auto; width: auto; min-width: 100px; padding: 8px 8px; background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 500; cursor: pointer; }
+        .ml-search-row .tf-select:hover { border-color: var(--accent-cyan); }
+        .ml-search-row .sidebar-btn { margin: 0; flex: 1; }
 
         .streak-indicator { display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; font-family: 'JetBrains Mono', monospace; background: var(--bg-card); color: var(--text-muted); border: 1px solid var(--border-color); }
         .streak-indicator.win { background: rgba(16, 185, 129, 0.2); color: var(--accent-green); border-color: var(--accent-green); }
@@ -304,7 +308,16 @@
                     <button class="strategy-btn" id="btn-ml" data-strategy="ml"><span class="strategy-name">ML</span><span class="strategy-desc">Genetic</span></button>
                 </div>
                 <button class="sidebar-btn" id="btn-config">Configure Strategies</button>
-                <button class="sidebar-btn" id="btn-ml-search">Run ML Search</button>
+                <div class="ml-search-row">
+                    <select class="tf-select" id="ml-timeframe">
+                        <option value="H1">H1 (1 year)</option>
+                        <option value="H4">H4 (2 years)</option>
+                        <option value="D1">D1 (5 years)</option>
+                        <option value="M15">M15 (60 days)</option>
+                        <option value="M30">M30 (90 days)</option>
+                    </select>
+                    <button class="sidebar-btn" id="btn-ml-search">Run ML Search</button>
+                </div>
             </nav>
         </aside>
 
@@ -913,13 +926,15 @@
         function runMLSearch() {
             if (!confirm('Run genetic algorithm search? This will test thousands of strategy combinations against MT5 historical data for ALL your enabled symbols. May take 2-5 minutes.')) return;
             const btn = document.getElementById('btn-ml-search');
+            const tfSelect = document.getElementById('ml-timeframe');
             const oldText = btn.textContent;
             btn.textContent = 'Searching MT5 data...';
             btn.disabled = true;
+            const selectedTf = tfSelect ? tfSelect.value : 'H1';
             fetch('/api/ml/search', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ generations: 20, population_size: 50, days: 365 })
+                body: JSON.stringify({ generations: 20, population_size: 50, timeframe: selectedTf })
             }).then(r => r.json()).then(data => {
                 btn.textContent = oldText;
                 btn.disabled = false;

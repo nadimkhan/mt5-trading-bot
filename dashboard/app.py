@@ -434,8 +434,8 @@ def api_ml_search():
         config = {
             'population_size': data.get('population_size', 50),
             'generations': data.get('generations', 20),
-            'min_profit_factor': data.get('min_profit_factor', 1.3),
-            'min_trades': data.get('min_trades', 50),
+            'min_profit_factor': data.get('min_profit_factor', 1.2),
+            'min_trades': data.get('min_trades', 20),
         }
         # Get backtester from engine if available
         backtester = None
@@ -451,16 +451,26 @@ def api_ml_search():
             symbols = engine.symbols
         else:
             symbols = ["EURUSD"]
-        # Get timeframes (use entry timeframe as default)
-        timeframes = ["H1"]  # H1 is the most reliable for ML search
-        if engine and hasattr(engine, 'timeframes'):
-            entry_tf = engine.timeframes.get("entry", "M15")
-            # Only use higher TFs for search (need more data per bar)
-            tf_map = {"M1": "M15", "M5": "H1", "M15": "H1", "M30": "H1",
-                      "H1": "H1", "H4": "H4", "D1": "D1"}
-            timeframes = [tf_map.get(entry_tf, "H1")]
+        # Get timeframe(s) - allow user override or default to H1
+        timeframes = data.get('timeframes', None)
+        if not timeframes:
+            tf_override = data.get('timeframe', None)
+            if tf_override and tf_override in ['M15', 'M30', 'H1', 'H4', 'D1']:
+                timeframes = [tf_override]
+            else:
+                timeframes = ["H1"]  # H1 default
+        # D1 needs more days to get enough bars (1 bar/day)
+        requested_days = data.get('days', 0)
+        if requested_days > 0:
+            days = requested_days
+        else:
+            # Auto-adjust days based on timeframe
+            days_map = {'M15': 60, 'M30': 90, 'H1': 365, 'H4': 730, 'D1': 1825}
+            days = days_map.get(timeframes[0], 365)
+        # For D1, we need at least 2 years (730 days) for statistically meaningful backtest
+        if 'D1' in timeframes and days < 730:
+            days = 1825  # 5 years for D1
         # Run search
-        days = data.get('days', 365)
         logger.info(f"ML search starting for symbols={symbols} timeframes={timeframes} days={days}")
         validated = searcher.run_search(symbols=symbols, timeframes=timeframes, days=days)
         # Return results
