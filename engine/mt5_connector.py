@@ -324,8 +324,10 @@ class MT5Connector:
                 order_mt5 = mt5.ORDER_TYPE_SELL
 
             # Validate SL/TP against minimum stop level
+            # MT5 requires SL/TP to be at LEAST trade_stops_level away from price
+            # We add 2x safety multiplier to handle spread, commission, and rounding
             point = symbol_info.point
-            min_stop_distance = symbol_info.trade_stops_level * point
+            min_stop_distance = symbol_info.trade_stops_level * point * 2
             if sl is not None:
                 if order_mt5 == mt5.ORDER_TYPE_BUY:
                     # SL must be below price by at least min_stop_distance
@@ -405,18 +407,23 @@ class MT5Connector:
             symbol_info = mt5.symbol_info(pos.symbol)
             if symbol_info:
                 # stop_level is in points, convert to price
+                # MT5 requires SL to be at LEAST trade_stops_level away from price
+                # We add a 2x safety multiplier to account for spread, commission, and rounding
                 point = symbol_info.point
-                min_stop_distance = symbol_info.trade_stops_level * point
+                min_stop_distance = symbol_info.trade_stops_level * point * 2
                 current_price = pos.price_current
                 # Ensure SL is far enough from current price
                 if pos.type == 0:  # BUY
-                    # SL must be at least min_stop_distance below current price
                     if new_sl > current_price - min_stop_distance:
                         new_sl = round(current_price - min_stop_distance, symbol_info.digits)
+                        logger.debug(f"SL adjusted to respect min stop level: {new_sl}")
                 else:  # SELL
-                    # SL must be at least min_stop_distance above current price
                     if new_sl < current_price + min_stop_distance:
                         new_sl = round(current_price + min_stop_distance, symbol_info.digits)
+                        logger.debug(f"SL adjusted to respect min stop level: {new_sl}")
+                # Final check: don't even try if SL is unchanged
+                if pos.sl and abs(pos.sl - new_sl) < 0.00001:
+                    return True
             request = {
                 "action": mt5.TRADE_ACTION_SLTP,
                 "position": ticket,
