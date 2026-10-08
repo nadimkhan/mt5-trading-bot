@@ -620,16 +620,43 @@ class TradingEngine:
         but the engine stores data as {M5: {closes:...}, M15: {closes:...}}.
         This picks the best available timeframe and flattens it."""
         flat = {}
-        # Use entry timeframe (M15 by default) as primary, fall back to others
-        primary_tf = self.timeframes.get("entry", "M15")
-        for tf in [primary_tf, "M15", "H1", "M5", "M1"]:
-            tf_data = market_data.get(tf, {})
-            if tf_data and isinstance(tf_data, dict):
-                if "closes" in tf_data and len(tf_data["closes"]) >= 20:
-                    flat["closes"] = tf_data["closes"]
-                    flat["highs"] = tf_data.get("highs", [])
-                    flat["lows"] = tf_data.get("lows", [])
-                    flat["volumes"] = tf_data.get("volumes", tf_data.get("tick_volumes", []))
+        # Priority order: configured TFs first, then common TFs
+        configured_tfs = []
+        try:
+            configured_tfs = [self.timeframes.get("entry", "M15"),
+                             self.timeframes.get("trend", "H4"),
+                             self.timeframes.get("confirm", "M5")]
+        except Exception:
+            pass
+        priority = configured_tfs + ["M15", "H4", "H1", "M30", "M5", "M1"]
+        # First pass: try priority order
+        for tf in priority:
+            tf_data = market_data.get(tf)
+            if tf_data is None or not isinstance(tf_data, dict):
+                continue
+            closes = tf_data.get('closes', []) or []
+            highs = tf_data.get('highs', []) or []
+            lows = tf_data.get('lows', []) or []
+            if len(closes) >= 20 and len(highs) >= 20 and len(lows) >= 20:
+                flat["closes"] = closes
+                flat["highs"] = highs
+                flat["lows"] = lows
+                flat["volumes"] = tf_data.get('volumes', tf_data.get('tick_volumes', []))
+                flat["_timeframe"] = tf
+                break
+        # Second pass: any TF that has enough data
+        if not flat.get("closes"):
+            for tf, tf_data in market_data.items():
+                if not isinstance(tf_data, dict):
+                    continue
+                closes = tf_data.get('closes', []) or []
+                highs = tf_data.get('highs', []) or []
+                lows = tf_data.get('lows', []) or []
+                if len(closes) >= 20 and len(highs) >= 20 and len(lows) >= 20:
+                    flat["closes"] = closes
+                    flat["highs"] = highs
+                    flat["lows"] = lows
+                    flat["volumes"] = tf_data.get('volumes', tf_data.get('tick_volumes', []))
                     flat["_timeframe"] = tf
                     break
         # Pass through metadata
@@ -766,19 +793,11 @@ class TradingEngine:
                     continue
                 logger.info(f"[DECISIONS] {symbol}: have market_data, TFs={list(market_data.keys())}")
 
-                # Check regime filter first - data is nested by timeframe
-                # Use the highest available timeframe (M15 or M5) for regime check
-                closes = []
-                highs = []
-                lows = []
-                for tf in ['M15', 'H1', 'M5', 'M1']:
-                    tf_data = market_data.get(tf, {})
-                    if tf_data and isinstance(tf_data, dict):
-                        closes = tf_data.get('closes', [])
-                        highs = tf_data.get('highs', [])
-                        lows = tf_data.get('lows', [])
-                        if len(closes) >= 20:
-                            break
+                # Check regime filter first - use the flattened data
+                flat = self._flatten_market_data(market_data, symbol)
+                closes = flat.get("closes", [])
+                highs = flat.get("highs", [])
+                lows = flat.get("lows", [])
 
                 if len(closes) >= 20 and len(highs) >= 20 and len(lows) >= 20:
                     regime = detect_market_regime(closes, highs, lows, closes)
@@ -786,7 +805,7 @@ class TradingEngine:
                         logger.info(f"[DECISIONS] {symbol}: regime not tradeable")
                         continue
                 else:
-                    logger.info(f"[DECISIONS] {symbol}: skip (no data in any TF)")
+                    logger.info(f"[DECISIONS] {symbol}: skip (no data - closes={len(closes)} highs={len(highs)} lows={len(lows)} TFs={list(market_data.keys())})")
                     continue
 
                 # Check session filter
@@ -794,9 +813,8 @@ class TradingEngine:
                     logger.info(f"[DECISIONS] {symbol}: skip (not tradeable time)")
                     continue
 
-                # Get strategy signal - flatten data for regime strategy
-                flat_data = self._flatten_market_data(market_data, symbol)
-                setup = self.strategy_manager.get_signal(flat_data)
+                # Get strategy signal - use flattened data
+                setup = self.strategy_manager.get_signal(flat)
                 logger.info(f"[DECISIONS] {symbol}: strategy signal={setup.get('signal')}, reason={setup.get('reason', '')[:60]}")
 
                 # Log this attempt for dashboard visibility (every symbol, every loop)
