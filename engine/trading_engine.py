@@ -352,7 +352,11 @@ class TradingEngine:
         last_trend_update = time.time()
         last_trade_management = time.time()
         last_broadcast = time.time()
-        
+        # Optimizer: run every 6 hours, on regime change
+        last_optimize = time.time() + 1800  # First optimize 30min after startup
+        optimize_interval = 6 * 3600  # 6 hours in seconds
+        last_regimes = {}  # Track previous regimes per symbol for change detection
+
         while self.running:
             try:
                 now = time.time()
@@ -394,6 +398,20 @@ class TradingEngine:
                 if now - last_trend_update >= self.trend_interval:
                     self._trend_loop()
                     last_trend_update = now
+
+                # OPTIMIZER: every 6h OR on regime change
+                regime_changed = False
+                if hasattr(self, 'trend_direction') and self.trend_direction:
+                    for sym, dval in self.trend_direction.items():
+                        new_regime = 'BULL' if 'BULL' in dval else ('BEAR' if 'BEAR' in dval else 'SIDEWAYS')
+                        old_regime = last_regimes.get(sym)
+                        if old_regime is not None and old_regime != new_regime:
+                            regime_changed = True
+                            logger.info(f"Optimizer trigger: regime changed {sym} {old_regime}->{new_regime}")
+                        last_regimes[sym] = new_regime
+                if (now - last_optimize >= optimize_interval) or regime_changed:
+                    self._auto_optimize(regime_changed=regime_changed)
+                    last_optimize = now
 
                 # Broadcast updates to dashboard (every 5 seconds)
                 if now - last_broadcast >= 5:
@@ -487,6 +505,96 @@ class TradingEngine:
 
         except Exception as e:
             logger.error(f"Broadcast error: {e}")
+
+    def _auto_optimize(self, regime_changed=False):
+        """Run optimizer for each enabled symbol + active strategy.
+
+        Triggered automatically every 6h or on regime change.
+        Saves results to DB (via dashboard endpoint logic) and applies best params.
+        """
+        if not self.mt5 or not self.symbols:
+            return
+        try:
+            from strategies.optimizer import optimize_strategy
+            import numpy as np
+            import json as _json
+            active_name = self.strategy_manager.active_strategy if self.strategy_manager else 'scalp'
+            if active_name == 'ml':
+                active_name = 'scalp'  # ML has no optimizer params, use scalp instead
+            logger.info(f"Auto-optimize trigger (regime_changed={regime_changed}, strategy={active_name})")
+            applied = 0
+            for symbol in self.symbols[:3]:  # Cap to 3 symbols per run to avoid blocking
+                try:
+                    count = 100
+                    rates = self.mt5.get_ohlcv(symbol, "M5", count)
+                    if rates is None or len(rates) < 60:
+                        continue
+                    closes = np.array([r['close'] for r in rates], dtype=float)
+                    highs = np.array([r['high'] for r in rates], dtype=float)
+                    lows = np.array([r['low'] for r in rates], dtype=float)
+                    volumes = np.array([r.get('tick_volume', 0) for r in rates], dtype=float)
+                    result = optimize_strategy(active_name, closes, highs, lows, volumes, symbol, min_trades=5)
+                    if result is None:
+                        logger.info(f"Auto-optimize: no edge found for {symbol} {active_name}")
+                        continue
+                    # Save to DB
+                    try:
+                        conn = get_db_connection()
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            CREATE TABLE IF NOT EXISTS optimizer_results (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                strategy TEXT NOT NULL,
+                                symbol TEXT NOT NULL,
+                                params_json TEXT NOT NULL,
+                                pnl REAL,
+                                win_rate REAL,
+                                trades INTEGER,
+                                profit_factor REAL,
+                                max_dd REAL,
+                                score REAL,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                            )
+                        """)
+                        cursor.execute("""
+                            INSERT INTO optimizer_results (strategy, symbol, params_json, pnl, win_rate, trades, profit_factor, max_dd, score)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (
+                            active_name, symbol,
+                            _json.dumps(result['params']),
+                            result['stats']['pnl'],
+                            result['stats']['win_rate'],
+                            result['stats']['trades'],
+                            result['stats']['profit_factor'],
+                            result['stats']['max_dd'],
+                            result['score'],
+                        ))
+                        result_id = cursor.lastrowid
+                        conn.commit()
+                        conn.close()
+                    except Exception as e:
+                        logger.error(f"Failed to save optimizer result: {e}")
+                        continue
+                    # Auto-apply best params to live strategy
+                    if self.strategy_manager and self.strategy_manager.active_strategy == active_name:
+                        try:
+                            from strategies.strategy_config import load_configs, save_configs
+                            configs = load_configs()
+                            if active_name in configs and 'parameters' in configs[active_name]:
+                                for p in configs[active_name]['parameters']:
+                                    if isinstance(p, dict) and p.get('key') in result['params']:
+                                        p['value'] = result['params'][p['key']]
+                                save_configs(configs)
+                                self.strategy_manager.reload_active_strategy()
+                                applied += 1
+                                logger.info(f"Auto-applied best params for {active_name} {symbol}: PnL=${result['stats']['pnl']:.2f} WR={result['stats']['win_rate']*100:.1f}%")
+                        except Exception as e:
+                            logger.error(f"Failed to auto-apply params: {e}")
+                except Exception as e:
+                    logger.error(f"Auto-optimize error for {symbol}: {e}")
+            logger.info(f"Auto-optimize complete: {applied} strategies updated")
+        except Exception as e:
+            logger.error(f"Auto-optimize outer error: {e}")
 
     def _trade_management_loop(self):
         """Manage open positions - breakeven, trailing stops, partial TP, regime exits"""

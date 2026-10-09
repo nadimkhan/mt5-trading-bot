@@ -386,7 +386,31 @@ class StrategyManager:
         except Exception as e:
             logger.debug(f"No persisted strategy: {e}")
         self.active_strategy = active
-    
+
+    def reload_active_strategy(self):
+        """Re-instantiate the active strategy with current config from disk."""
+        from strategies.strategy_config import load_configs
+        configs = load_configs()
+        active = self.active_strategy
+        # Re-create the strategy object with fresh config
+        if active == "scalp":
+            self.strategies["scalp"] = ScalpStrategy(configs.get('scalp', {}), timeframes=configs.get('scalp', {}).get('timeframes', {}))
+        elif active == "trend":
+            self.strategies["trend"] = TrendFollowingStrategy(configs.get('trend', {}), timeframes=configs.get('trend', {}).get('timeframes', {}))
+        elif active == "regime":
+            try:
+                from strategies.regime_aware import RegimeAwareStrategy
+                self.strategies["regime"] = RegimeAwareStrategy(configs.get('regime', {}))
+            except Exception as e:
+                logger.warning(f"Failed to reload regime strategy: {e}")
+        elif active == "ml":
+            try:
+                from strategies.ml_strategy import MLStrategy
+                self.strategies["ml"] = MLStrategy(configs.get('ml', {}), timeframes=configs.get('ml', {}).get('timeframes', {}))
+            except Exception as e:
+                logger.warning(f"Failed to reload ML strategy: {e}")
+        logger.info(f"Reloaded active strategy: {active}")
+
     def get_signal(self, market_data: Dict) -> Dict:
         """Get signal from active strategy"""
         strategy = self.strategies.get(self.active_strategy, self.strategies["scalp"])

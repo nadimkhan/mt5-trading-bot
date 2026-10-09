@@ -258,6 +258,10 @@
         .ml-search-row .tf-select { flex: 0 0 auto; width: auto; min-width: 100px; padding: 8px 8px; background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 500; cursor: pointer; }
         .ml-search-row .tf-select:hover { border-color: var(--accent-cyan); }
         .ml-search-row .sidebar-btn { margin: 0; flex: 1; }
+        .opt-result { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px; padding: 8px 10px; margin: 6px 0; font-size: 10px; color: var(--text-secondary); font-family: 'JetBrains Mono', monospace; line-height: 1.5; }
+        .opt-result .opt-pnl { color: var(--accent-green); font-weight: 600; }
+        .opt-result .opt-no { color: var(--text-muted); }
+        .opt-result .opt-params { color: var(--accent-cyan); font-size: 9px; }
 
         .streak-indicator { display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; font-family: 'JetBrains Mono', monospace; background: var(--bg-card); color: var(--text-muted); border: 1px solid var(--border-color); }
         .streak-indicator.win { background: rgba(16, 185, 129, 0.2); color: var(--accent-green); border-color: var(--accent-green); }
@@ -326,6 +330,15 @@
                     </select>
                     <button class="sidebar-btn" id="btn-ml-search">Run ML Search</button>
                 </div>
+                <div class="ml-search-row">
+                    <select class="tf-select" id="opt-strategy">
+                        <option value="scalp">Scalp</option>
+                        <option value="trend">Trend</option>
+                        <option value="regime">Regime</option>
+                    </select>
+                    <button class="sidebar-btn" id="btn-optimize">Optimize</button>
+                </div>
+                <div id="opt-result" class="opt-result" style="display:none;"></div>
             </nav>
         </aside>
 
@@ -1020,6 +1033,74 @@
                 showModal('ML Search error: ' + err);
             });
         }
+
+        function runOptimize() {
+            const btn = document.getElementById('btn-optimize');
+            const strategySel = document.getElementById('opt-strategy');
+            const resultDiv = document.getElementById('opt-result');
+            const strategy = strategySel ? strategySel.value : 'scalp';
+            const oldText = btn.textContent;
+            btn.textContent = 'Optimizing...';
+            btn.disabled = true;
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = '<div class="opt-no">Running optimizer on last 6h of M5 data...</div>';
+            fetch('/api/optimize/run', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ strategy: strategy, hours: 6, min_trades: 5 })
+            }).then(r => r.json()).then(data => {
+                btn.textContent = oldText;
+                btn.disabled = false;
+                if (data.error) {
+                    resultDiv.innerHTML = '<div class="opt-no">Error: ' + data.error + '</div>';
+                    return;
+                }
+                if (data.status === 'no_result') {
+                    resultDiv.innerHTML = '<div class="opt-no">No edge found: ' + data.message + '</div>';
+                    return;
+                }
+                const s = data.stats;
+                const paramsStr = Object.entries(data.best_params).map(([k,v]) => k + '=' + v).join(' ');
+                let html = '<div><strong>' + data.strategy.toUpperCase() + '</strong> on <strong>' + data.symbol + '</strong> (' + data.data_bars + ' bars)</div>'
+                    + '<div class="opt-pnl">PnL: $' + s.pnl + ' | WR: ' + s.win_rate + '%</div>'
+                    + '<div>Trades: ' + s.trades + ' | PF: ' + s.profit_factor + ' | DD: $' + s.max_dd + '</div>'
+                    + '<div class="opt-params">' + paramsStr + '</div>'
+                    + '<button class="sidebar-btn" style="margin-top:6px;font-size:10px;padding:4px;" onclick="applyOptimizer(' + data.id + ', this)">Apply to Live Strategy</button>';
+                resultDiv.innerHTML = html;
+            }).catch(err => {
+                btn.textContent = oldText;
+                btn.disabled = false;
+                resultDiv.innerHTML = '<div class="opt-no">Error: ' + err + '</div>';
+            });
+        }
+
+        function applyOptimizer(resultId, btn) {
+            btn.disabled = true;
+            btn.textContent = 'Applying...';
+            fetch('/api/optimize/apply', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ result_id: resultId })
+            }).then(r => r.json()).then(data => {
+                if (data.error) {
+                    showModal('Apply failed: ' + data.error);
+                    btn.disabled = false;
+                    btn.textContent = 'Apply to Live Strategy';
+                } else {
+                    btn.textContent = 'Applied!';
+                    showModal('Parameters applied to live strategy: ' + data.updated.join(', '));
+                }
+            }).catch(err => {
+                showModal('Apply error: ' + err);
+                btn.disabled = false;
+                btn.textContent = 'Apply to Live Strategy';
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const optBtn = document.getElementById('btn-optimize');
+            if (optBtn) optBtn.addEventListener('click', runOptimize);
+        });
     </script>
 </body>
 </html>

@@ -564,6 +564,220 @@ def api_ml_search():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/api/optimize/run', methods=['POST'])
+def api_optimize_run():
+    """Run online parameter optimizer on recent M5 data.
+
+    Brute-force search over parameter ranges for scalp/trend/regime strategies
+    using last 6 hours of M5 data. Returns best parameters found.
+    """
+    global engine
+    try:
+        from strategies.optimizer import optimize_strategy, _timeframe_to_str
+        data = request.get_json() or {}
+        strategy = data.get('strategy', 'scalp')
+        symbol = data.get('symbol')
+        hours = int(data.get('hours', 6))
+        min_trades = int(data.get('min_trades', 5))
+
+        # Get symbol
+        if not symbol:
+            if engine and hasattr(engine, 'symbols') and engine.symbols:
+                symbol = engine.symbols[0]
+            else:
+                symbol = "EURUSD"
+
+        if not engine or not engine.mt5:
+            return jsonify({"error": "Engine or MT5 not available"}), 400
+
+        # Fetch recent M5 data via mt5_connector
+        try:
+            count = max(100, (hours * 60) // 5 + 100)
+            rates = engine.mt5.get_ohlcv(symbol, "M5", count)
+            if rates is None or len(rates) < 60:
+                return jsonify({"error": f"Insufficient M5 data for {symbol}: got {0 if rates is None else len(rates)} bars"}), 400
+            # Trim to last `hours`
+            bars_needed = (hours * 60) // 5
+            rates = rates[-bars_needed:] if len(rates) > bars_needed else rates
+            import numpy as np
+            closes = np.array([r['close'] for r in rates], dtype=float)
+            highs = np.array([r['high'] for r in rates], dtype=float)
+            lows = np.array([r['low'] for r in rates], dtype=float)
+            volumes = np.array([r.get('tick_volume', 0) for r in rates], dtype=float)
+        except Exception as e:
+            return jsonify({"error": f"Failed to fetch M5 data: {e}"}), 500
+
+        # Run optimizer (synchronous - takes a few seconds)
+        logger.info(f"Optimizer: {strategy} on {symbol} ({len(closes)} M5 bars over {hours}h)")
+        result = optimize_strategy(strategy, closes, highs, lows, volumes, symbol, min_trades=min_trades)
+
+        if result is None:
+            return jsonify({
+                "status": "no_result",
+                "strategy": strategy,
+                "symbol": symbol,
+                "message": f"No profitable combo found for {strategy} on {symbol} in last {hours}h. Market may be choppy or parameters too strict."
+            })
+
+        # Save to DB for persistence
+        import json as _json
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS optimizer_results (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    strategy TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    params_json TEXT NOT NULL,
+                    pnl REAL,
+                    win_rate REAL,
+                    trades INTEGER,
+                    profit_factor REAL,
+                    max_dd REAL,
+                    score REAL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("""
+                INSERT INTO optimizer_results (strategy, symbol, params_json, pnl, win_rate, trades, profit_factor, max_dd, score)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                strategy, symbol,
+                _json.dumps(result['params']),
+                result['stats']['pnl'],
+                result['stats']['win_rate'],
+                result['stats']['trades'],
+                result['stats']['profit_factor'],
+                result['stats']['max_dd'],
+                result['score'],
+            ))
+            result_id = cursor.lastrowid
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"Failed to save optimizer result: {e}")
+            result_id = None
+
+        return jsonify({
+            "status": "ok",
+            "id": result_id,
+            "strategy": strategy,
+            "symbol": symbol,
+            "data_bars": len(closes),
+            "data_hours": hours,
+            "best_params": result['params'],
+            "stats": {
+                "pnl": round(result['stats']['pnl'], 2),
+                "win_rate": round(result['stats']['win_rate'] * 100, 1),
+                "trades": result['stats']['trades'],
+                "profit_factor": round(result['stats']['profit_factor'], 2),
+                "max_dd": round(result['stats']['max_dd'], 2),
+            },
+            "score": round(result['score'], 2),
+        })
+    except Exception as e:
+        logger.error(f"Optimizer failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/optimize/results', methods=['GET'])
+def api_optimize_results():
+    """Get recent optimizer results (for showing last best params)."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, strategy, symbol, params_json, pnl, win_rate, trades,
+                   profit_factor, max_dd, score, created_at
+            FROM optimizer_results
+            ORDER BY created_at DESC
+            LIMIT 20
+        """)
+        rows = cursor.fetchall()
+        conn.close()
+        import json as _json
+        results = []
+        for r in rows:
+            results.append({
+                "id": r[0],
+                "strategy": r[1],
+                "symbol": r[2],
+                "params": _json.loads(r[3]) if r[3] else {},
+                "pnl": r[4],
+                "win_rate": r[5],
+                "trades": r[6],
+                "profit_factor": r[7],
+                "max_dd": r[8],
+                "score": r[9],
+                "created_at": r[10]
+            })
+        return jsonify(results)
+    except Exception as e:
+        logger.error(f"Failed to get optimizer results: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/optimize/apply', methods=['POST'])
+def api_optimize_apply():
+    """Apply best parameters from a recent optimizer result to the live strategy."""
+    global engine
+    try:
+        from strategies.strategy_config import load_configs, save_configs
+        import json as _json
+        data = request.get_json() or {}
+        result_id = data.get('result_id')
+        if not result_id:
+            return jsonify({"error": "Missing result_id"}), 400
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT strategy, params_json FROM optimizer_results WHERE id = ?", (result_id,))
+        row = cursor.fetchone()
+        conn.close()
+        if not row:
+            return jsonify({"error": f"Result {result_id} not found"}), 404
+        strategy, params_json = row
+        params = _json.loads(params_json)
+
+        # Merge optimizer params into the live strategy config
+        configs = load_configs()
+        if strategy not in configs:
+            return jsonify({"error": f"Strategy {strategy} not in configs"}), 400
+        # Update each parameter that exists in the config
+        updated = []
+        if 'parameters' in configs[strategy]:
+            for p in configs[strategy]['parameters']:
+                if isinstance(p, dict) and p.get('key') in params:
+                    old_val = p.get('value')
+                    p['value'] = params[p['key']]
+                    updated.append(f"{p['key']}: {old_val} -> {p['value']}")
+        # Save
+        save_configs(configs)
+
+        # Force the engine to re-instantiate the strategy with new params
+        if engine:
+            try:
+                if hasattr(engine, 'strategy_manager') and engine.strategy_manager:
+                    engine.strategy_manager.reload_active_strategy()
+            except Exception as e:
+                logger.warning(f"Could not reload strategy automatically: {e}")
+
+        return jsonify({
+            "status": "ok",
+            "strategy": strategy,
+            "applied_params": params,
+            "updated": updated
+        })
+    except Exception as e:
+        logger.error(f"Failed to apply optimizer result: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/api/ml/genomes', methods=['GET'])
 def api_ml_genomes():
     """Get list of validated genomes from DB"""

@@ -84,15 +84,17 @@
 - [x] Quick backtester on M5 data (6h window)
 - [x] Scoring: PnL × win rate × trade count × drawdown penalty
 - [x] Smoke test in `tests/optimizer_smoke_test.py`
-- [ ] UI button to run optimizer
-- [ ] Auto-trigger on regime change
-- [ ] Auto-trigger every 6h
-- [ ] Apply best parameters to live strategy
+- [x] UI button to run optimizer (sidebar, "Optimize" button next to ML Search)
+- [x] Auto-trigger on regime change (engine loop detects BULL<->BEAR flips)
+- [x] Auto-trigger every 6h (engine loop, first run 30min after startup)
+- [x] Apply best parameters to live strategy (`/api/optimize/apply` endpoint)
+- [x] `optimizer_results` table in DB for history
+- [x] `StrategyManager.reload_active_strategy()` for hot-reload after apply
 
 ### Reported Issues (NEEDS INVESTIGATION)
-- [ ] **Max trades per day not updating** - User changed from 10 to 20 in config but logs still show `10/10` - max_trades_per_day not being hot-reloaded or read from wrong place
-- [ ] **P&L per trade values incorrect in Recent Trades** - Values shown don't match actual P&L, large discrepancy between displayed and expected. Investigate: is it using wrong field? Is it from MT5 history (which has different field names) vs DB? Is the calculation wrong?
-- [ ] **SL/TP visible in MT5 terminal** - User wants to verify hidden SL/TP mode actually working. When `hidden_sl_tp: true`, MT5 should show NO SL/TP for new orders. Check: is the config being read? Is `send_order` getting the flag? Is the broker overriding our zeros?
+- [x] **Max trades per day not updating** - FIXED: now reads from `strategy_configs.json` each loop
+- [x] **P&L per trade values incorrect in Recent Trades** - FIXED: DB now primary source, MT5 fallback matches by `position_id` not symbol
+- [x] **SL/TP visible in MT5 terminal** - FIXED: `hidden_sl_tp: true` in config.yaml
 
 ### UI Polish (DONE in this session)
 - [x] **Loading states** - Spinner + "Loading..." text on initial load
