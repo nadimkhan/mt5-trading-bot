@@ -301,9 +301,10 @@ def api_decisions():
 
 
 def db_get_trades(limit=50):
+    """Get CLOSED trades only (with P&L and exit price) for trade history display."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM trades ORDER BY opened_at DESC LIMIT ?", (limit,))
+    cursor.execute("SELECT * FROM trades WHERE status = 'CLOSED' AND pnl IS NOT NULL ORDER BY closed_at DESC LIMIT ?", (limit,))
     rows = cursor.fetchall()
     conn.close()
     result = []
