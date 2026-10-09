@@ -1336,12 +1336,36 @@ class TradingEngine:
                     from strategies.strategy_config import load_configs
                     active_name = self.strategy_manager.active_strategy
                     live_configs = load_configs()
-                    if active_name in live_configs and 'parameters' in live_configs[active_name]:
-                        for p in live_configs[active_name]['parameters']:
-                            if isinstance(p, dict) and p.get('key') == 'max_trades_per_day':
-                                max_trades = int(p.get('value', 10))
-                            elif isinstance(p, dict) and p.get('key') == 'daily_loss_limit_pct':
-                                max_daily_loss = float(p.get('value', 3.0))
+                    # Try active strategy first, then fall back to scalp (regime has no config section)
+                    for lookup_name in [active_name, 'scalp', 'trend']:
+                        if lookup_name not in live_configs:
+                            continue
+                        params = live_configs[lookup_name].get('parameters', {})
+                        if not isinstance(params, dict):
+                            continue
+                        # Parameters can be: dict of {key: {value, type, ...}} OR list of {key: ..., value: ...}
+                        if 'max_trades_per_day' in params:
+                            entry = params['max_trades_per_day']
+                            if isinstance(entry, dict):
+                                max_trades = int(entry.get('value', max_trades))
+                            else:
+                                max_trades = int(entry)
+                            break  # found it
+                    # Same for daily loss
+                    for lookup_name in [active_name, 'scalp', 'trend']:
+                        if lookup_name not in live_configs:
+                            continue
+                        params = live_configs[lookup_name].get('parameters', {})
+                        if not isinstance(params, dict):
+                            continue
+                        if 'daily_loss_limit_pct' in params:
+                            entry = params['daily_loss_limit_pct']
+                            if isinstance(entry, dict):
+                                max_daily_loss = float(entry.get('value', max_daily_loss))
+                            else:
+                                max_daily_loss = float(entry)
+                            break
+                    logger.debug(f"Daily limits: max_trades={max_trades} (from {active_name} or fallback), max_loss={max_daily_loss}")
                 except Exception as e:
                     logger.debug(f"Config reload failed, using strategy attribute: {e}")
                     # Fallback to cached strategy attribute
