@@ -51,6 +51,43 @@
 - [x] ML button not showing as active (missing in updateStrategyUI)
 - [x] Sidebar default symbols were disabled - migration enabled them
 - [x] Double padding in sidebar (container + element)
+- [x] Regime strategy missing `win_streak_increase_pct` and `loss_streak_threshold` attributes
+- [x] Engine reading `stop_loss`/`take_profit` but regime returns `sl`/`tp` (field name mismatch)
+- [x] `UnboundLocalError: cannot access local variable 'ai_action'` - initialized before block
+- [x] `trades` table missing `spread`/`regime`/`slippage` columns - added via ALTER
+- [x] `trades` table missing `spread_at_exit`/`exit_slippage` columns - added
+- [x] `close_position` failed with "Unsupported filling mode" - now probes `symbol_info.filling_mode` bitmask
+- [x] `send_order` failed with "No prices (retcode=10021)" on non-tradable symbols - now validates `trade_mode=4` and bid/ask
+- [x] Daily trade limit counted ALL symbols - now per-symbol via `get_trades_today_for_symbol()`
+- [x] Orphan closer assigning same close deal to multiple trades - now unique per orphan
+- [x] Trade history showed OPEN positions - filtered to `status='CLOSED' AND pnl IS NOT NULL`
+- [x] Trade history limited to 5 trades - now shows all in scrollable container
+
+### Recent Trade History & UI
+- [x] Close button per open position (calls `/api/positions/close`)
+- [x] Scrollable trade history with themed scrollbar (max-height 320px)
+- [x] P&L display robust to null/undefined, supports both `lot_size` and `volume` field names
+- [x] Engine broadcasts 100 closed trades instead of 20
+
+### Trade Management Features
+- [x] Regime-change exit: closes positions when market regime flips (BULL<->BEAR)
+- [x] Hidden SL/TP option: send orders with `sl=0, tp=0` and manage in-memory
+- [x] Internal SL/TP monitor: when hidden mode on, monitors price and closes at SL/TP
+- [x] Trailing stop, breakeven, partial TP via trade_manager.manage_all_positions()
+- [x] Per-symbol daily trade limit (10 trades/day per symbol, was global)
+- [x] Orbital trade cleanup: orphan closer runs every loop, assigns unique close deals
+- [x] Config option `trade_management.hidden_sl_tp` (default false) and `regime_exit` (default true)
+
+### Online Parameter Optimizer (NEW - this session)
+- [x] `strategies/optimizer.py` with brute-force parameter search
+- [x] Per-strategy parameter ranges (Scalp/Trend/Regime)
+- [x] Quick backtester on M5 data (6h window)
+- [x] Scoring: PnL × win rate × trade count × drawdown penalty
+- [x] Smoke test in `tests/optimizer_smoke_test.py`
+- [ ] UI button to run optimizer
+- [ ] Auto-trigger on regime change
+- [ ] Auto-trigger every 6h
+- [ ] Apply best parameters to live strategy
 
 ### UI Polish (DONE in this session)
 - [x] **Loading states** - Spinner + "Loading..." text on initial load
