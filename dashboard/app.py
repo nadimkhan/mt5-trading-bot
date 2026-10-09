@@ -321,29 +321,34 @@ def db_get_trades(limit=50):
 
 @app.route('/api/history')
 def api_history():
-    """Get closed trades - sync from MT5 history + local DB"""
+    """Get closed trades - DB first (correct entry/exit pairing), MT5 fallback"""
     global engine
-    trades = []
-    if engine and engine.mt5:
+    # Use DB as primary source - each row is a complete trade with matched entry/exit
+    trades = db_get_trades(100)
+    # If DB is empty, fall back to MT5 history with proper position_id matching
+    if not trades and engine and engine.mt5:
         try:
             from datetime import datetime, timedelta
             to_date = datetime.now()
             from_date = to_date - timedelta(days=7)
             deals = engine.mt5.get_history_deals(from_date, to_date) or []
 
-            # MT5: entry=0 = IN (open), entry=1 = OUT (close)
-            in_deals = [d for d in deals if d.get('entry') == 0]
-            out_deals = [d for d in deals if d.get('entry') == 1]
+            # Group by position_id to match opens with closes correctly
+            # Each trade cycle: one IN deal (entry=0) + one or more OUT deals (entry=1)
+            # Same position_id means they belong to the same trade
+            opens_by_pos = {}
+            closes = []
+            for d in deals:
+                pid = d.get('position_id')
+                if d.get('entry') == 0 and pid:
+                    if pid not in opens_by_pos:
+                        opens_by_pos[pid] = d
+                elif d.get('entry') == 1 and pid:
+                    closes.append(d)
 
-            # Match IN with OUT by symbol (each close has the profit)
-            for out_deal in out_deals:
-                symbol = out_deal.get('symbol', 'UNKNOWN')
-                # Find the matching IN deal
-                in_deal = None
-                for d in in_deals:
-                    if d.get('symbol') == symbol:
-                        in_deal = d
-                        break
+            for out_deal in closes:
+                pid = out_deal.get('position_id')
+                in_deal = opens_by_pos.get(pid)
                 if not in_deal:
                     continue
                 # IN type 0=BUY, type 1=SELL
@@ -354,12 +359,13 @@ def api_history():
                 in_ts = in_deal.get('time', '')
                 in_ts_str = in_ts.isoformat() if hasattr(in_ts, 'isoformat') else str(in_ts)
                 trades.append({
-                    'symbol': symbol,
+                    'symbol': in_deal.get('symbol', 'UNKNOWN'),
                     'action': action,
                     'entry_price': in_deal.get('price', 0),
                     'exit_price': out_deal.get('price', 0),
                     'pnl': out_deal.get('profit', 0),
                     'volume': out_deal.get('volume', 0),
+                    'lot_size': out_deal.get('volume', 0),  # alias for frontend
                     'opened_at': in_ts_str,
                     'closed_at': ts_str,
                     'status': 'CLOSED'
@@ -367,9 +373,9 @@ def api_history():
         except Exception as e:
             logger.error(f"Failed to get MT5 history: {e}")
     if not trades:
-        trades = db_get_trades(50)
+        return jsonify([])
     trades.sort(key=lambda t: t.get('closed_at', ''), reverse=True)
-    return jsonify(trades[:20])
+    return jsonify(trades[:100])
 
 
 @app.route('/api/strategies')

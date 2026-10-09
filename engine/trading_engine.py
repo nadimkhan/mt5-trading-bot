@@ -1145,8 +1145,25 @@ class TradingEngine:
         try:
             from engine.trade_counter import can_trade_today, calculate_lot_adjustment
             strategy_obj = self.strategy_manager.strategies.get(self.strategy_manager.active_strategy) if self.strategy_manager else None
-            max_trades = getattr(strategy_obj, 'max_trades_per_day', 10) if strategy_obj else 10
-            max_daily_loss = getattr(strategy_obj, 'daily_loss_limit_pct', 3.0) if strategy_obj else 3.0
+            # Read LIVE values from config (not cached strategy attribute) so changes take effect immediately
+            max_trades = 10
+            max_daily_loss = 3.0
+            if strategy_obj:
+                try:
+                    from strategies.strategy_config import load_configs
+                    active_name = self.strategy_manager.active_strategy
+                    live_configs = load_configs()
+                    if active_name in live_configs and 'parameters' in live_configs[active_name]:
+                        for p in live_configs[active_name]['parameters']:
+                            if isinstance(p, dict) and p.get('key') == 'max_trades_per_day':
+                                max_trades = int(p.get('value', 10))
+                            elif isinstance(p, dict) and p.get('key') == 'daily_loss_limit_pct':
+                                max_daily_loss = float(p.get('value', 3.0))
+                except Exception as e:
+                    logger.debug(f"Config reload failed, using strategy attribute: {e}")
+                    # Fallback to cached strategy attribute
+                    max_trades = getattr(strategy_obj, 'max_trades_per_day', 10)
+                    max_daily_loss = getattr(strategy_obj, 'daily_loss_limit_pct', 3.0)
             account_balance = self.mt5.get_account_info().get('balance', 0) if self.mt5 else 0
             can_trade, reason = can_trade_today(max_trades, max_daily_loss, account_balance, symbol=symbol)
             if not can_trade:

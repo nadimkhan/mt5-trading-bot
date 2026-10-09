@@ -256,6 +256,7 @@ class MT5Connector:
             for deal in deals:
                 result.append({
                     'ticket': deal.ticket,
+                    'position_id': getattr(deal, 'position_id', None),  # link IN/OUT deals
                     'symbol': deal.symbol,
                     'entry': deal.entry,
                     'type': deal.type,

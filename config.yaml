@@ -2,9 +2,9 @@
 
 # AI Provider Settings
 ai:
-  provider: "groq"  # Options: claude, openai, minimax, groq
-  api_key: "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"
-  model: "qwen/qwen3.8-27b"  # Groq free tier model
+  provider: "kiraai"  # Options: claude, openai, groq, kiraai (recommended for free tier)
+  api_key: "kira_a9516f77cad83225c3855f3f56fcab01"  # Get from kiraai.vn/developer/
+  model: "qwen3.8-flash-free"  # KiraAI free model (Qwen 3.8 Flash)
   max_tokens: 1000
   temperature: 0.7
 
@@ -75,3 +75,14 @@ engine:
 dashboard:
   host: "127.0.0.1"
   port: 5000
+
+
+# Trade Management
+trade_management:
+  # Set to true to hide SL/TP from MT5 (managed by our script for regime-change exits)
+  # When false (default), SL/TP are sent to MT5 and visible in terminal
+  hidden_sl_tp: true
+
+  # Close positions when market regime changes from entry regime
+  # e.g. BULL->BEAR or BULL->SIDEWAYS will close long positions
+  regime_exit: true
