@@ -89,6 +89,11 @@
 - [ ] Auto-trigger every 6h
 - [ ] Apply best parameters to live strategy
 
+### Reported Issues (NEEDS INVESTIGATION)
+- [ ] **Max trades per day not updating** - User changed from 10 to 20 in config but logs still show `10/10` - max_trades_per_day not being hot-reloaded or read from wrong place
+- [ ] **P&L per trade values incorrect in Recent Trades** - Values shown don't match actual P&L, large discrepancy between displayed and expected. Investigate: is it using wrong field? Is it from MT5 history (which has different field names) vs DB? Is the calculation wrong?
+- [ ] **SL/TP visible in MT5 terminal** - User wants to verify hidden SL/TP mode actually working. When `hidden_sl_tp: true`, MT5 should show NO SL/TP for new orders. Check: is the config being read? Is `send_order` getting the flag? Is the broker overriding our zeros?
+
 ### UI Polish (DONE in this session)
 - [x] **Loading states** - Spinner + "Loading..." text on initial load
 - [x] **Error states** - `safeFetch` wrapper with friendly error messages
