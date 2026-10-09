@@ -1040,10 +1040,10 @@
             const resultDiv = document.getElementById('opt-result');
             const strategy = strategySel ? strategySel.value : 'scalp';
             const oldText = btn.textContent;
-            btn.textContent = 'Optimizing...';
+            btn.textContent = 'Optimizing all symbols...';
             btn.disabled = true;
             resultDiv.style.display = 'block';
-            resultDiv.innerHTML = '<div class="opt-no">Running optimizer on last 6h of M5 data...</div>';
+            resultDiv.innerHTML = '<div class="opt-no">Running optimizer on all enabled symbols (last 6h M5)...</div>';
             fetch('/api/optimize/run', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1055,17 +1055,29 @@
                     resultDiv.innerHTML = '<div class="opt-no">Error: ' + data.error + '</div>';
                     return;
                 }
-                if (data.status === 'no_result') {
-                    resultDiv.innerHTML = '<div class="opt-no">No edge found: ' + data.message + '</div>';
-                    return;
+                // Multi-symbol response
+                const results = data.results || [];
+                const okCount = data.ok_count || 0;
+                const total = data.total || results.length;
+                let html = '<div style="font-weight:600;color:var(--text-primary);margin-bottom:6px;">' + strategy.toUpperCase() + ' optimizer: ' + okCount + '/' + total + ' symbols with edge</div>';
+                if (results.length === 0) {
+                    html += '<div class="opt-no">No symbols configured</div>';
                 }
-                const s = data.stats;
-                const paramsStr = Object.entries(data.best_params).map(([k,v]) => k + '=' + v).join(' ');
-                let html = '<div><strong>' + data.strategy.toUpperCase() + '</strong> on <strong>' + data.symbol + '</strong> (' + data.data_bars + ' bars)</div>'
-                    + '<div class="opt-pnl">PnL: $' + s.pnl + ' | WR: ' + s.win_rate + '%</div>'
-                    + '<div>Trades: ' + s.trades + ' | PF: ' + s.profit_factor + ' | DD: $' + s.max_dd + '</div>'
-                    + '<div class="opt-params">' + paramsStr + '</div>'
-                    + '<button class="sidebar-btn" style="margin-top:6px;font-size:10px;padding:4px;" onclick="applyOptimizer(' + data.id + ', this)">Apply to Live Strategy</button>';
+                for (const r of results) {
+                    if (r.status === 'ok') {
+                        const s = r.stats;
+                        const paramsStr = Object.entries(r.best_params).map(([k,v]) => k + '=' + v).join(' ');
+                        html += '<div style="margin-top:8px;padding-top:6px;border-top:1px solid var(--border-color);">'
+                            + '<div><strong>' + r.symbol + '</strong> (' + r.data_bars + ' bars)</div>'
+                            + '<div class="opt-pnl">PnL: $' + s.pnl + ' | WR: ' + s.win_rate + '%</div>'
+                            + '<div>Trades: ' + s.trades + ' | PF: ' + s.profit_factor + ' | DD: $' + s.max_dd + '</div>'
+                            + '<div class="opt-params">' + paramsStr + '</div>'
+                            + '<button class="sidebar-btn" style="margin-top:4px;font-size:9px;padding:3px;" onclick="applyOptimizer(' + r.id + ', this)">Apply</button>'
+                            + '</div>';
+                    } else {
+                        html += '<div style="margin-top:4px;" class="opt-no">' + r.symbol + ': ' + r.message + '</div>';
+                    }
+                }
                 resultDiv.innerHTML = html;
             }).catch(err => {
                 btn.textContent = oldText;

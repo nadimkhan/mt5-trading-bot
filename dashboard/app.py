@@ -576,50 +576,25 @@ def api_optimize_run():
         from strategies.optimizer import optimize_strategy, _timeframe_to_str
         data = request.get_json() or {}
         strategy = data.get('strategy', 'scalp')
-        symbol = data.get('symbol')
+        requested_symbol = data.get('symbol')  # optional - if provided, only that symbol
         hours = int(data.get('hours', 6))
         min_trades = int(data.get('min_trades', 5))
 
-        # Get symbol
-        if not symbol:
+        # Get list of symbols to optimize
+        if requested_symbol:
+            symbols = [requested_symbol]
+        else:
+            # Use all enabled symbols from engine
             if engine and hasattr(engine, 'symbols') and engine.symbols:
-                symbol = engine.symbols[0]
+                symbols = list(engine.symbols)
             else:
-                symbol = "EURUSD"
+                symbols = ["EURUSD"]
+        logger.info(f"Optimizer: {strategy} on {len(symbols)} symbols: {symbols}")
 
         if not engine or not engine.mt5:
             return jsonify({"error": "Engine or MT5 not available"}), 400
 
-        # Fetch recent M5 data via mt5_connector
-        try:
-            count = max(100, (hours * 60) // 5 + 100)
-            rates = engine.mt5.get_ohlcv(symbol, "M5", count)
-            if rates is None or len(rates) < 60:
-                return jsonify({"error": f"Insufficient M5 data for {symbol}: got {0 if rates is None else len(rates)} bars"}), 400
-            # Trim to last `hours`
-            bars_needed = (hours * 60) // 5
-            rates = rates[-bars_needed:] if len(rates) > bars_needed else rates
-            import numpy as np
-            closes = np.array([r['close'] for r in rates], dtype=float)
-            highs = np.array([r['high'] for r in rates], dtype=float)
-            lows = np.array([r['low'] for r in rates], dtype=float)
-            volumes = np.array([r.get('tick_volume', 0) for r in rates], dtype=float)
-        except Exception as e:
-            return jsonify({"error": f"Failed to fetch M5 data: {e}"}), 500
-
-        # Run optimizer (synchronous - takes a few seconds)
-        logger.info(f"Optimizer: {strategy} on {symbol} ({len(closes)} M5 bars over {hours}h)")
-        result = optimize_strategy(strategy, closes, highs, lows, volumes, symbol, min_trades=min_trades)
-
-        if result is None:
-            return jsonify({
-                "status": "no_result",
-                "strategy": strategy,
-                "symbol": symbol,
-                "message": f"No profitable combo found for {strategy} on {symbol} in last {hours}h. Market may be choppy or parameters too strict."
-            })
-
-        # Save to DB for persistence
+        # Ensure optimizer_results table exists (once)
         import json as _json
         try:
             conn = get_db_connection()
@@ -639,42 +614,104 @@ def api_optimize_run():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            cursor.execute("""
-                INSERT INTO optimizer_results (strategy, symbol, params_json, pnl, win_rate, trades, profit_factor, max_dd, score)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                strategy, symbol,
-                _json.dumps(result['params']),
-                result['stats']['pnl'],
-                result['stats']['win_rate'],
-                result['stats']['trades'],
-                result['stats']['profit_factor'],
-                result['stats']['max_dd'],
-                result['score'],
-            ))
-            result_id = cursor.lastrowid
             conn.commit()
             conn.close()
         except Exception as e:
-            logger.error(f"Failed to save optimizer result: {e}")
-            result_id = None
+            logger.error(f"Failed to create optimizer_results table: {e}")
 
+        import numpy as np
+        results = []  # collect per-symbol results
+        for symbol in symbols:
+            # Fetch recent M5 data
+            try:
+                count = max(100, (hours * 60) // 5 + 100)
+                rates = engine.mt5.get_ohlcv(symbol, "M5", count)
+                if rates is None or len(rates) < 60:
+                    results.append({
+                        "status": "no_data",
+                        "strategy": strategy,
+                        "symbol": symbol,
+                        "message": f"Insufficient M5 data for {symbol}"
+                    })
+                    continue
+                bars_needed = (hours * 60) // 5
+                rates = rates[-bars_needed:] if len(rates) > bars_needed else rates
+                closes = np.array([r['close'] for r in rates], dtype=float)
+                highs = np.array([r['high'] for r in rates], dtype=float)
+                lows = np.array([r['low'] for r in rates], dtype=float)
+                volumes = np.array([r.get('tick_volume', 0) for r in rates], dtype=float)
+            except Exception as e:
+                results.append({
+                    "status": "error",
+                    "strategy": strategy,
+                    "symbol": symbol,
+                    "message": f"Failed to fetch M5 data: {e}"
+                })
+                continue
+
+            # Run optimizer
+            logger.info(f"Optimizer: {strategy} on {symbol} ({len(closes)} M5 bars over {hours}h)")
+            result = optimize_strategy(strategy, closes, highs, lows, volumes, symbol, min_trades=min_trades)
+            if result is None:
+                results.append({
+                    "status": "no_result",
+                    "strategy": strategy,
+                    "symbol": symbol,
+                    "message": f"No profitable combo found for {symbol} in last {hours}h"
+                })
+                continue
+
+            # Save to DB
+            result_id = None
+            try:
+                conn = get_db_connection()
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT INTO optimizer_results (strategy, symbol, params_json, pnl, win_rate, trades, profit_factor, max_dd, score)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    strategy, symbol,
+                    _json.dumps(result['params']),
+                    result['stats']['pnl'],
+                    result['stats']['win_rate'],
+                    result['stats']['trades'],
+                    result['stats']['profit_factor'],
+                    result['stats']['max_dd'],
+                    result['score'],
+                ))
+                result_id = cursor.lastrowid
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                logger.error(f"Failed to save optimizer result for {symbol}: {e}")
+
+            results.append({
+                "status": "ok",
+                "id": result_id,
+                "strategy": strategy,
+                "symbol": symbol,
+                "data_bars": len(closes),
+                "data_hours": hours,
+                "best_params": result['params'],
+                "stats": {
+                    "pnl": round(result['stats']['pnl'], 2),
+                    "win_rate": round(result['stats']['win_rate'] * 100, 1),
+                    "trades": result['stats']['trades'],
+                    "profit_factor": round(result['stats']['profit_factor'], 2),
+                    "max_dd": round(result['stats']['max_dd'], 2),
+                },
+                "score": round(result['score'], 2),
+            })
+
+        # Return aggregated response
+        any_ok = any(r.get('status') == 'ok' for r in results)
         return jsonify({
-            "status": "ok",
-            "id": result_id,
+            "status": "ok" if any_ok else "no_result",
             "strategy": strategy,
-            "symbol": symbol,
-            "data_bars": len(closes),
-            "data_hours": hours,
-            "best_params": result['params'],
-            "stats": {
-                "pnl": round(result['stats']['pnl'], 2),
-                "win_rate": round(result['stats']['win_rate'] * 100, 1),
-                "trades": result['stats']['trades'],
-                "profit_factor": round(result['stats']['profit_factor'], 2),
-                "max_dd": round(result['stats']['max_dd'], 2),
-            },
-            "score": round(result['score'], 2),
+            "symbols_searched": symbols,
+            "results": results,
+            "ok_count": sum(1 for r in results if r.get('status') == 'ok'),
+            "total": len(symbols),
         })
     except Exception as e:
         logger.error(f"Optimizer failed: {e}")
