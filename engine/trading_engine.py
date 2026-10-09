@@ -54,15 +54,15 @@ def get_enabled_symbols():
         return ['XAUUSD', 'EURUSD', 'GBPUSD', 'BRNUSD']
 
 
-def db_insert_trade(symbol, action, lot_size, entry_price, spread=0, regime="UNKNOWN", slippage=0):
+def db_insert_trade(symbol, action, lot_size, entry_price, spread=0, regime="UNKNOWN", slippage=0, ticket=None):
     """Insert a new trade record into DB with enhanced logging"""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO trades (symbol, action, lot_size, entry_price, spread, regime, slippage, status, opened_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'OPEN', ?)
-        """, (symbol, action, lot_size, entry_price, spread, regime, slippage, datetime.now().isoformat()))
+            INSERT INTO trades (symbol, action, lot_size, entry_price, spread, regime, slippage, status, opened_at, ticket)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?)
+        """, (symbol, action, lot_size, entry_price, spread, regime, slippage, datetime.now().isoformat(), ticket))
         trade_id = cursor.lastrowid
         conn.commit()
         conn.close()
@@ -98,45 +98,83 @@ def db_close_orphaned_trades(mt5_positions):
         to_date = datetime.now()
         from_date = to_date - timedelta(days=7)
         deals = mt5.history_deals_get(from_date, to_date) or []
-        # Build map: symbol -> list of OUT deals (entry=1 means closing trade), sorted newest first
+
+        # Build map: position_id -> {in_deal, out_deal}
+        # Each trade cycle has one position_id with an IN (entry=0) and one or more OUT (entry=1)
+        positions_by_id = {}
+        for d in deals:
+            pid = getattr(d, 'position_id', None)
+            if not pid:
+                continue
+            if pid not in positions_by_id:
+                positions_by_id[pid] = {'in': None, 'out': None}
+            if d.entry == 0:
+                positions_by_id[pid]['in'] = d
+            elif d.entry == 1:
+                # Take the most recent OUT for this position
+                if positions_by_id[pid]['out'] is None or d.time > positions_by_id[pid]['out'].time:
+                    positions_by_id[pid]['out'] = d
+
+        # Also build symbol->list of OUT deals (for fallback when position_id not available)
         close_deals_by_symbol = {}
         for d in deals:
-            if d.entry == 1 and d.symbol:  # OUT (closing deal)
+            if d.entry == 1 and d.symbol:
                 if d.symbol not in close_deals_by_symbol:
                     close_deals_by_symbol[d.symbol] = []
                 close_deals_by_symbol[d.symbol].append(d)
-        # Sort each by time desc (newest first)
         for sym in close_deals_by_symbol:
             close_deals_by_symbol[sym].sort(key=lambda x: x.time, reverse=True)
 
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT id, symbol, lot_size, entry_price, opened_at FROM trades WHERE status='OPEN'")
+        cursor.execute("SELECT id, symbol, lot_size, entry_price, opened_at, ticket FROM trades WHERE status='OPEN'")
         open_trades = cursor.fetchall()
         conn.close()
 
-        # Track which close deal has been used for which DB trade
-        # to avoid assigning the same deal P&L to multiple DB trades
         used_deals_by_symbol = {}
 
-        for trade_id, symbol, lot_size, entry_price, opened_at in open_trades:
+        for trade_id, symbol, lot_size, entry_price, opened_at, ticket in open_trades:
             # Check if still open in MT5
             still_open = any(
                 p.get('symbol') == symbol
                 for p in (mt5_positions or [])
             )
-            if not still_open:
-                # Look up the matching close deal for this symbol
-                close_pnl = 0
-                close_price = entry_price
+            if still_open:
+                continue
+            # Not in MT5 anymore - find the matching close
+            close_pnl = 0
+            close_price = entry_price
+            matched = False
+            # Try position_id match first: find a position whose IN deal time matches our entry
+            for pid, pdata in positions_by_id.items():
+                in_d = pdata['in']
+                out_d = pdata['out']
+                if not in_d or not out_d:
+                    continue
+                if in_d.symbol != symbol:
+                    continue
+                # Match: entry price close, or ticket match
+                if ticket and str(in_d.position_id) == str(ticket):
+                    close_pnl = out_d.profit
+                    close_price = out_d.price
+                    matched = True
+                    break
+                # Fallback: match by entry price (within 0.01) and time
+                if abs(in_d.price - entry_price) < 0.01 and in_d.time >= (datetime.now() - timedelta(days=2)).timestamp():
+                    close_pnl = out_d.profit
+                    close_price = out_d.price
+                    matched = True
+                    break
+            if not matched:
+                # Final fallback: use next unused close deal for this symbol
                 used = used_deals_by_symbol.setdefault(symbol, 0)
                 if symbol in close_deals_by_symbol and used < len(close_deals_by_symbol[symbol]):
                     close = close_deals_by_symbol[symbol][used]
                     close_pnl = close.profit
                     close_price = close.price
                     used_deals_by_symbol[symbol] = used + 1
-                db_update_trade(trade_id, close_price, close_pnl)
-                logger.info(f"Closed orphan trade #{trade_id} {symbol} entry={entry_price} exit={close_price} P&L={close_pnl}")
+            db_update_trade(trade_id, close_price, close_pnl)
+            logger.info(f"Closed orphan trade #{trade_id} {symbol} entry={entry_price} exit={close_price} P&L={close_pnl}")
     except Exception as e:
         logger.error(f"Failed to close orphaned trades: {e}")
 
@@ -1403,15 +1441,17 @@ class TradingEngine:
             logger.info(f"ORDER SENT: {action} {lot_size} {symbol} @ {current_price} | Spread: {spread_at_entry} | Regime: {market_regime}")
 
             # Insert trade to DB with enhanced logging
+            trade_ticket = result.get("ticket")
             trade_id = db_insert_trade(
                 symbol, action, lot_size, current_price,
                 spread=spread_at_entry,
                 regime=market_regime,
-                slippage=round(slippage_pips, 1)
+                slippage=round(slippage_pips, 1),
+                ticket=trade_ticket
             )
 
             # Record the regime at entry for regime-change exit detection
-            ticket = result.get("ticket")
+            ticket = trade_ticket
             if ticket and self.trade_manager:
                 self.trade_manager.record_position_regime(ticket, market_regime)
                 # If hidden_sl_tp mode, store SL/TP in memory (not sent to MT5)
