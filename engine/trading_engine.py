@@ -54,15 +54,29 @@ def get_enabled_symbols():
         return ['XAUUSD', 'EURUSD', 'GBPUSD', 'BRNUSD']
 
 
-def db_insert_trade(symbol, action, lot_size, entry_price, spread=0, regime="UNKNOWN", slippage=0, ticket=None):
-    """Insert a new trade record into DB with enhanced logging"""
+def db_insert_trade(symbol, action, lot_size, entry_price, spread=0, regime="UNKNOWN", slippage=0, ticket=None, deal_id=None):
+    """Insert a new trade record into DB with enhanced logging.
+
+    Deduplication: if a trade with the same ticket OR deal_id already exists in OPEN state,
+    do NOT insert a duplicate. Return the existing trade_id instead.
+    """
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
+        # DEDUP: if a trade with this ticket is already OPEN, return its id
+        if ticket:
+            cursor.execute("SELECT id FROM trades WHERE ticket=? AND status='OPEN'", (ticket,))
+            existing = cursor.fetchone()
+            if existing:
+                if deal_id:
+                    cursor.execute("UPDATE trades SET deal_id=? WHERE id=?", (deal_id, existing[0]))
+                    conn.commit()
+                conn.close()
+                return existing[0]
         cursor.execute("""
-            INSERT INTO trades (symbol, action, lot_size, entry_price, spread, regime, slippage, status, opened_at, ticket)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?)
-        """, (symbol, action, lot_size, entry_price, spread, regime, slippage, datetime.now().isoformat(), ticket))
+            INSERT INTO trades (symbol, action, lot_size, entry_price, spread, regime, slippage, status, opened_at, ticket, deal_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?)
+        """, (symbol, action, lot_size, entry_price, spread, regime, slippage, datetime.now().isoformat(), ticket, deal_id))
         trade_id = cursor.lastrowid
         conn.commit()
         conn.close()
@@ -127,13 +141,13 @@ def db_close_orphaned_trades(mt5_positions):
 
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT id, symbol, lot_size, entry_price, opened_at, ticket FROM trades WHERE status='OPEN'")
+        cursor.execute("SELECT id, symbol, lot_size, entry_price, opened_at, ticket, deal_id FROM trades WHERE status='OPEN'")
         open_trades = cursor.fetchall()
         conn.close()
 
         used_deals_by_symbol = {}
 
-        for trade_id, symbol, lot_size, entry_price, opened_at, ticket in open_trades:
+        for trade_id, symbol, lot_size, entry_price, opened_at, ticket, deal_id in open_trades:
             # Check if still open in MT5
             still_open = any(
                 p.get('symbol') == symbol
@@ -145,7 +159,7 @@ def db_close_orphaned_trades(mt5_positions):
             close_pnl = 0
             close_price = entry_price
             matched = False
-            # Try position_id match first: find a position whose IN deal time matches our entry
+            # Try position_id match first: match against ticket OR deal_id
             for pid, pdata in positions_by_id.items():
                 in_d = pdata['in']
                 out_d = pdata['out']
@@ -153,26 +167,49 @@ def db_close_orphaned_trades(mt5_positions):
                     continue
                 if in_d.symbol != symbol:
                     continue
-                # Match: entry price close, or ticket match
-                if ticket and str(in_d.position_id) == str(ticket):
+                # Match: by ticket (order ticket) OR deal_id (position id)
+                if ticket and str(pid) == str(ticket):
                     close_pnl = out_d.profit
                     close_price = out_d.price
                     matched = True
                     break
-                # Fallback: match by entry price (within 0.01) and time
-                if abs(in_d.price - entry_price) < 0.01 and in_d.time >= (datetime.now() - timedelta(days=2)).timestamp():
+                if deal_id and str(pid) == str(deal_id):
+                    close_pnl = out_d.profit
+                    close_price = out_d.price
+                    matched = True
+                    break
+                # Fallback: match by entry price (within 0.5 for XAU/BRN, 0.0001 for forex) and time
+                price_tolerance = 0.5 if symbol in ('XAUUSD', 'BRNUSD', 'BTCUSDT', 'ETHUSDT') else 0.001
+                if abs(in_d.price - entry_price) < price_tolerance and in_d.time >= (datetime.now() - timedelta(days=2)).timestamp():
                     close_pnl = out_d.profit
                     close_price = out_d.price
                     matched = True
                     break
             if not matched:
                 # Final fallback: use next unused close deal for this symbol
+                # BUT only if the close time is within 24h of the trade open time
                 used = used_deals_by_symbol.setdefault(symbol, 0)
                 if symbol in close_deals_by_symbol and used < len(close_deals_by_symbol[symbol]):
-                    close = close_deals_by_symbol[symbol][used]
-                    close_pnl = close.profit
-                    close_price = close.price
-                    used_deals_by_symbol[symbol] = used + 1
+                    candidate = close_deals_by_symbol[symbol][used]
+                    # Check time proximity - don't use ancient deals
+                    # Parse opened_at (ISO string) to timestamp
+                    try:
+                        if isinstance(opened_at, str):
+                            if 'T' in opened_at:
+                                opened_ts = datetime.fromisoformat(opened_at).timestamp()
+                            else:
+                                opened_ts = datetime.strptime(opened_at, '%Y-%m-%d %H:%M:%S').timestamp()
+                        else:
+                            opened_ts = float(opened_at)
+                        # Close must be within 24h of open, and AFTER open
+                        if candidate.time > opened_ts and (candidate.time - opened_ts) < 86400:
+                            close_pnl = candidate.profit
+                            close_price = candidate.price
+                            used_deals_by_symbol[symbol] = used + 1
+                        # else: leave as entry_price/0 pnl
+                    except Exception:
+                        # On parse error, just skip (don't match to ancient deals)
+                        pass
             db_update_trade(trade_id, close_price, close_pnl)
             logger.info(f"Closed orphan trade #{trade_id} {symbol} entry={entry_price} exit={close_price} P&L={close_pnl}")
     except Exception as e:
@@ -1442,12 +1479,14 @@ class TradingEngine:
 
             # Insert trade to DB with enhanced logging
             trade_ticket = result.get("ticket")
+            trade_deal = result.get("deal")
             trade_id = db_insert_trade(
                 symbol, action, lot_size, current_price,
                 spread=spread_at_entry,
                 regime=market_regime,
                 slippage=round(slippage_pips, 1),
-                ticket=trade_ticket
+                ticket=trade_ticket,
+                deal_id=trade_deal
             )
 
             # Record the regime at entry for regime-change exit detection
