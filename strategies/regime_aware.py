@@ -92,6 +92,9 @@ class RegimeAwareStrategy:
         self.loss_streak_reduction_pct = self.config.get("loss_streak_reduction_pct", 50)
         self.win_streak_boost_pct = self.config.get("win_streak_boost_pct", 20)
         self.max_streak_lot_multiplier = self.config.get("max_streak_lot_multiplier", 2.0)
+        self.loss_streak_threshold = self.config.get("loss_streak_threshold", 2)
+        self.win_streak_threshold = self.config.get("win_streak_threshold", 2)
+        self.base_lot_size = self.config.get("base_lot_size", 0.01)
         logger.info("RegimeAwareStrategy initialized")
 
     def _detect_regime(self, closes: List[float], highs: List[float], lows: List[float]) -> Dict:

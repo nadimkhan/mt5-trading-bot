@@ -905,8 +905,8 @@ class TradingEngine:
 
                 # Check risk-reward ratio
                 entry = setup.get("entry_zone")
-                sl = setup.get("stop_loss")
-                tp = setup.get("take_profit")
+                sl = setup.get("sl") or setup.get("stop_loss")
+                tp = setup.get("tp") or setup.get("take_profit")
                 if entry and sl and tp:
                     risk = abs(entry - sl)
                     reward = abs(tp - entry)
@@ -1036,8 +1036,8 @@ class TradingEngine:
                         "strategy": self.strategy_manager.active_strategy if self.strategy_manager else "scalp",
                         "confidence": setup_confidence,
                         "entry_price": setup.get("entry_zone"),
-                        "stop_loss": setup.get("stop_loss"),
-                        "take_profit": setup.get("take_profit"),
+                        "stop_loss": setup.get("sl") or setup.get("stop_loss"),
+                        "take_profit": setup.get("tp") or setup.get("take_profit"),
                         "market_regime": regime.get("regime") if regime else "UNKNOWN",
                         "vetoed": False,
                         "ai_action": ai_action,
