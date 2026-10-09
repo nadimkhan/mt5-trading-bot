@@ -33,6 +33,10 @@ class TradeManager:
         # Track position regime at entry: {ticket: regime_at_entry}
         self._position_regimes = {}
 
+        # Hidden SL/TP mode: {ticket: {'sl': price, 'tp': price, 'symbol': str}}
+        # Only used when hidden_sl_tp=True in config
+        self._internal_sl_tps = {}
+
         # ATR settings for trailing
         atr_config = config.get("trailing", {})
         self.use_atr_trailing = atr_config.get("enabled", True)
@@ -376,6 +380,14 @@ class TradeManager:
         """Record the regime at position entry for later regime-change detection."""
         self._position_regimes[ticket] = regime
 
+    def record_internal_sl_tp(self, ticket: int, sl: float, tp: float, symbol: str):
+        """Store SL/TP in memory (when hidden_sl_tp=True)."""
+        self._internal_sl_tps[ticket] = {'sl': sl, 'tp': tp, 'symbol': symbol}
+
+    def clear_internal_sl_tp(self, ticket: int):
+        """Remove internal SL/TP tracking for a closed position."""
+        self._internal_sl_tps.pop(ticket, None)
+
     def get_entry_regime(self, ticket: int) -> str:
         """Get the regime at which a position was opened."""
         return self._position_regimes.get(ticket, "UNKNOWN")
@@ -383,6 +395,59 @@ class TradeManager:
     def clear_position_regime(self, ticket: int):
         """Remove regime tracking for a closed position."""
         self._position_regimes.pop(ticket, None)
+
+    def check_and_close_on_sl_tp_hit(self, internal_sl_tps: Dict[int, Dict]) -> list:
+        """Check if any positions hit their internal (hidden) SL/TP and close them.
+
+        Args:
+            internal_sl_tps: {ticket: {'sl': price, 'tp': price, 'symbol': str}}
+
+        Returns:
+            List of {ticket, symbol, reason} for closed positions
+        """
+        closed = []
+        if not self.mt5:
+            return closed
+        try:
+            positions = self.mt5.get_positions() or []
+            for pos in positions:
+                if pos.get('magic') != self.magic:
+                    continue
+                ticket = pos.get('ticket')
+                if ticket not in internal_sl_tps:
+                    continue
+                levels = internal_sl_tps[ticket]
+                sl = levels.get('sl')
+                tp = levels.get('tp')
+                current = pos.get('price_current', 0)
+                pos_type = pos.get('type', 0)  # 0=buy, 1=sell
+                # For BUY positions: SL below current, TP above current
+                # For SELL positions: SL above current, TP below current
+                hit_sl = False
+                hit_tp = False
+                if pos_type == 0:  # BUY
+                    if sl and current > 0 and current <= sl:
+                        hit_sl = True
+                    if tp and current > 0 and current >= tp:
+                        hit_tp = True
+                else:  # SELL
+                    if sl and current > 0 and current >= sl:
+                        hit_sl = True
+                    if tp and current > 0 and current <= tp:
+                        hit_tp = True
+                if hit_sl or hit_tp:
+                    reason = 'SL hit' if hit_sl else 'TP hit'
+                    logger.info(f"{pos.get('symbol')} ticket {ticket}: {reason} (hidden), closing position")
+                    result = self.mt5.close_position(ticket)
+                    if result:
+                        closed.append({
+                            'ticket': ticket,
+                            'symbol': pos.get('symbol'),
+                            'reason': f'Hidden {reason}'
+                        })
+        except Exception as e:
+            logger.error(f"Hidden SL/TP check error: {e}")
+        return closed
 
     def check_and_close_on_regime_change(self, current_regimes: Dict[str, str]) -> list:
         """Close positions where the regime has changed from entry.

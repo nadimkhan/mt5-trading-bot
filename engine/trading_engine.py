@@ -512,6 +512,17 @@ class TradingEngine:
                 for c in closed_by_regime:
                     logger.info(f"Closed {c['symbol']} ticket {c['ticket']}: {c['reason']}")
 
+            # HIDDEN SL/TP CHECK: if hidden mode is on, monitor prices ourselves
+            hidden_mode = self.config.get("trade_management", {}).get("hidden_sl_tp", False)
+            if hidden_mode and self.trade_manager._internal_sl_tps:
+                closed_by_sltp = self.trade_manager.check_and_close_on_sl_tp_hit(
+                    self.trade_manager._internal_sl_tps
+                )
+                for c in closed_by_sltp:
+                    logger.info(f"Closed {c['symbol']} ticket {c['ticket']}: {c['reason']}")
+                    self.trade_manager.clear_internal_sl_tp(c['ticket'])
+                    self.trade_manager.clear_position_regime(c['ticket'])
+
             # Manage all positions (breakeven, trailing, partial TP)
             results = self.trade_manager.manage_all_positions()
 
@@ -1225,13 +1236,16 @@ class TradingEngine:
                 if sl_price < current_price + min_stop_level:
                     sl_price = round(current_price + min_stop_level + min_stop_level * 0.1, digits)
                     logger.info(f"{symbol}: SL adjusted to min stop level: {sl_price}")
+        # Check if hidden_sl_tp mode is enabled in config
+        hidden_mode = self.config.get("trade_management", {}).get("hidden_sl_tp", False)
         result = self.mt5.send_order(
             symbol=symbol,
             order_type=action,
             volume=lot_size,
             sl=sl_price,
             tp=tp_price,
-            comment=f"AI:{decision.get('strategy', 'AI')}"
+            comment=f"AI:{decision.get('strategy', 'AI')}",
+            hidden_sl_tp=hidden_mode
         )
 
         if not result:
@@ -1268,6 +1282,10 @@ class TradingEngine:
             ticket = result.get("ticket")
             if ticket and self.trade_manager:
                 self.trade_manager.record_position_regime(ticket, market_regime)
+                # If hidden_sl_tp mode, store SL/TP in memory (not sent to MT5)
+                hidden_mode = self.config.get("trade_management", {}).get("hidden_sl_tp", False)
+                if hidden_mode and sl_price and tp_price:
+                    self.trade_manager.record_internal_sl_tp(ticket, sl_price, tp_price, symbol)
             
             # Log trade
             trade_log = {
