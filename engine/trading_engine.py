@@ -460,7 +460,7 @@ class TradingEngine:
 
             # Broadcast history (closed trades)
             from dashboard.app import db_get_trades
-            history = db_get_trades(20)
+            history = db_get_trades(100)  # Show all closed trades in scrollable view
             socketio.emit('history_update', history)
 
             # Broadcast status

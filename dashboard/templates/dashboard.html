@@ -180,6 +180,11 @@
         .pnl-value.negative { color: var(--accent-red); }
         .btn-close-pos { background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); padding: 4px 12px; border-radius: 4px; font-family: inherit; font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
         .btn-close-pos:hover { background: #ef4444; color: #fff; }
+        .history-scroll { max-height: 320px; overflow-y: auto; overflow-x: hidden; border-radius: 6px; }
+        .history-scroll::-webkit-scrollbar { width: 5px; }
+        .history-scroll::-webkit-scrollbar-track { background: var(--bg-secondary); border-radius: 3px; }
+        .history-scroll::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
+        .history-scroll::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
 
         .market-item { display: flex; align-items: center; justify-content: space-between; padding: 12px; border-bottom: 1px solid var(--border-color); transition: background 0.2s; }
         .market-item:last-child { border-bottom: none; }
@@ -786,9 +791,28 @@
                 showEmpty('trade-history', '○', 'No closed trades yet', 'Trades will appear here once the bot closes its first position');
                 return;
             }
-            let html = '<table class="positions-table"><thead><tr><th>Symbol</th><th>Type</th><th>Entry</th><th>Exit</th><th>P&L</th></tr></thead><tbody>';
-            history.slice(0, 5).forEach(t => { const pnl = t.pnl || 0; const pnlClass = pnl >= 0 ? 'positive' : 'negative'; const sign = pnl >= 0 ? '+' : '-'; const absPnl = Math.abs(pnl).toFixed(2); html += '<tr><td><span class="symbol-badge">' + t.symbol + '</span></td><td><span class="type-badge ' + t.action.toLowerCase() + '">' + t.action + '</span></td><td>' + t.entry_price.toFixed(5) + '</td><td>' + (t.exit_price ? t.exit_price.toFixed(5) : '-') + '</td><td><span class="pnl-value ' + pnlClass + '">' + sign + '$' + absPnl + '</span></td></tr>'; });
-            html += '</tbody></table>';
+            let html = '<div class="history-scroll"><table class="positions-table"><thead><tr><th>Symbol</th><th>Type</th><th>Lot</th><th>Entry</th><th>Exit</th><th>P&L</th></tr></thead><tbody>';
+            history.forEach(t => {
+                const pnl = (t.pnl === null || t.pnl === undefined) ? 0 : parseFloat(t.pnl);
+                const pnlClass = pnl >= 0 ? 'positive' : 'negative';
+                const sign = pnl >= 0 ? '+' : '-';
+                const absPnl = Math.abs(pnl).toFixed(2);
+                const exitDisplay = (t.exit_price === null || t.exit_price === undefined) ? '-' : parseFloat(t.exit_price).toFixed(5);
+                const entryDisplay = parseFloat(t.entry_price || 0).toFixed(5);
+                // Support both lot_size (from DB) and volume (from MT5)
+                const lotValue = t.lot_size !== undefined ? t.lot_size : t.volume;
+                const lotDisplay = parseFloat(lotValue || 0).toFixed(2);
+                const action = (t.action || '').toLowerCase();
+                html += '<tr>'
+                    + '<td><span class="symbol-badge">' + t.symbol + '</span></td>'
+                    + '<td><span class="type-badge ' + action + '">' + t.action + '</span></td>'
+                    + '<td>' + lotDisplay + '</td>'
+                    + '<td>' + entryDisplay + '</td>'
+                    + '<td>' + exitDisplay + '</td>'
+                    + '<td><span class="pnl-value ' + pnlClass + '">' + sign + '$' + absPnl + '</span></td>'
+                    + '</tr>';
+            });
+            html += '</tbody></table></div>';
             container.innerHTML = html;
         }
 
