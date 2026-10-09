@@ -701,6 +701,30 @@ class TradingEngine:
             if closed_by_regime:
                 for c in closed_by_regime:
                     logger.info(f"Closed {c['symbol']} ticket {c['ticket']}: {c['reason']}")
+                    # Update the DB immediately so orphan closer doesn't pick it up
+                    try:
+                        from datetime import datetime as _dt, timedelta as _td
+                        to_date = _dt.now()
+                        from_date = to_date - _td(hours=1)
+                        deals = self.mt5.get_history_deals(from_date, to_date) or []
+                        close_pnl = 0
+                        close_price = 0
+                        for d in deals:
+                            if d.get('entry') == 1 and str(d.get('position_id', '')) == str(c['ticket']):
+                                close_pnl = d.get('profit', 0)
+                                close_price = d.get('price', 0)
+                                break
+                        conn = get_db_connection()
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            UPDATE trades
+                            SET exit_price = ?, pnl = ?, status = 'CLOSED', closed_at = ?
+                            WHERE ticket = ? AND status = 'OPEN'
+                        """, (close_price, close_pnl, _dt.now().isoformat(), c['ticket']))
+                        conn.commit()
+                        conn.close()
+                    except Exception as e:
+                        logger.error(f"Failed to update DB for regime close: {e}")
 
             # HIDDEN SL/TP CHECK: if hidden mode is on, monitor prices ourselves
             hidden_mode = self.config.get("trade_management", {}).get("hidden_sl_tp", False)
@@ -710,6 +734,43 @@ class TradingEngine:
                 )
                 for c in closed_by_sltp:
                     logger.info(f"Closed {c['symbol']} ticket {c['ticket']}: {c['reason']}")
+                    # Update the DB immediately so orphan closer doesn't pick it up
+                    try:
+                        # Get current price from MT5 for exit_price
+                        from datetime import datetime as _dt
+                        positions = self.mt5.get_positions() or []
+                        # Position is already closed, use last known price or skip
+                        conn = get_db_connection()
+                        cursor = conn.cursor()
+                        # Use pnl from MT5 history if we can find the close deal
+                        from datetime import datetime, timedelta
+                        to_date = datetime.now()
+                        from_date = to_date - timedelta(hours=1)
+                        deals = self.mt5.get_history_deals(from_date, to_date) or []
+                        close_pnl = 0
+                        close_price = 0
+                        for d in deals:
+                            if d.get('entry') == 1 and str(d.get('position_id', '')) == str(c['ticket']):
+                                close_pnl = d.get('profit', 0)
+                                close_price = d.get('price', 0)
+                                break
+                        if close_price == 0:
+                            # Try matching by ticket
+                            for d in deals:
+                                if d.get('entry') == 1 and str(d.get('ticket', '')) == str(c['ticket']):
+                                    close_pnl = d.get('profit', 0)
+                                    close_price = d.get('price', 0)
+                                    break
+                        cursor.execute("""
+                            UPDATE trades
+                            SET exit_price = ?, pnl = ?, status = 'CLOSED', closed_at = ?
+                            WHERE ticket = ? AND status = 'OPEN'
+                        """, (close_price, close_pnl, _dt.now().isoformat(), c['ticket']))
+                        conn.commit()
+                        conn.close()
+                        logger.info(f"DB updated for hidden close: {c['symbol']} ticket {c['ticket']} exit={close_price} pnl={close_pnl}")
+                    except Exception as e:
+                        logger.error(f"Failed to update DB for hidden close: {e}")
                     self.trade_manager.clear_internal_sl_tp(c['ticket'])
                     self.trade_manager.clear_position_regime(c['ticket'])
 
