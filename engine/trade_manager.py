@@ -18,25 +18,33 @@ class TradeManager:
         self.mt5 = mt5_connector
         self.config = config
         self.magic = config.get("mt5", {}).get("magic_number", 123456)
-        
+
         # Risk settings
         risk_config = config.get("risk", {})
         self.risk_per_trade_pct = risk_config.get("max_risk_per_trade", 1.0)  # 1% default
         self.daily_loss_limit_pct = risk_config.get("daily_loss_limit", 3.0)  # 3% default
         self.spread_cap_pips = risk_config.get("spread_cap_pips", 20)
-        
+
+        # Hidden SL/TP mode (SL/TP stored in our DB, not sent to MT5)
+        self.hidden_sl_tp = config.get("trade_management", {}).get("hidden_sl_tp", False)
+
+        # Regime-change exit: close positions when regime changes from entry
+        self.regime_exit_enabled = config.get("trade_management", {}).get("regime_exit", True)
+        # Track position regime at entry: {ticket: regime_at_entry}
+        self._position_regimes = {}
+
         # ATR settings for trailing
         atr_config = config.get("trailing", {})
         self.use_atr_trailing = atr_config.get("enabled", True)
         self.atr_multiplier = atr_config.get("atr_multiplier", 3.0)
         self.atr_period = atr_config.get("period", 14)
         self.trailing_threshold_pips = atr_config.get("threshold_pips", 15)
-        
+
         # Breakeven settings
         be_config = config.get("breakeven", {})
         self.breakeven_enabled = be_config.get("enabled", True)
         self.breakeven_trigger_pips = be_config.get("trigger_pips", 20)
-        
+
         # Partial TP settings
         ptp_config = config.get("partial_tp", {})
         self.partial_tp_enabled = ptp_config.get("enabled", True)
@@ -363,6 +371,62 @@ class TradeManager:
     def update_daily_pnl(self, closed_pnl: float):
         """Track daily P&L"""
         self._daily_pnl += closed_pnl
+
+    def record_position_regime(self, ticket: int, regime: str):
+        """Record the regime at position entry for later regime-change detection."""
+        self._position_regimes[ticket] = regime
+
+    def get_entry_regime(self, ticket: int) -> str:
+        """Get the regime at which a position was opened."""
+        return self._position_regimes.get(ticket, "UNKNOWN")
+
+    def clear_position_regime(self, ticket: int):
+        """Remove regime tracking for a closed position."""
+        self._position_regimes.pop(ticket, None)
+
+    def check_and_close_on_regime_change(self, current_regimes: Dict[str, str]) -> list:
+        """Close positions where the regime has changed from entry.
+
+        Args:
+            current_regimes: {symbol: current_regime} from regime detection
+
+        Returns:
+            List of {ticket, symbol, reason} for closed positions
+        """
+        closed = []
+        if not self.regime_exit_enabled:
+            return closed
+        if not self.mt5:
+            return closed
+        try:
+            positions = self.mt5.get_positions() or []
+            for pos in positions:
+                if pos.get('magic') != self.magic:
+                    continue
+                ticket = pos.get('ticket')
+                symbol = pos.get('symbol')
+                entry_regime = self.get_entry_regime(ticket)
+                current = current_regimes.get(symbol, "UNKNOWN")
+                # Close if regime flipped (BULL<->BEAR) or went to SIDEWAYS
+                if entry_regime != "UNKNOWN" and current != "UNKNOWN":
+                    flipped = (
+                        (entry_regime == "BULL" and current in ("BEAR", "SIDEWAYS")) or
+                        (entry_regime == "BEAR" and current in ("BULL", "SIDEWAYS")) or
+                        (entry_regime == "SIDEWAYS" and current in ("BULL", "BEAR"))
+                    )
+                    if flipped:
+                        logger.info(f"{symbol} ticket {ticket}: regime changed {entry_regime} -> {current}, closing position")
+                        result = self.mt5.close_position(ticket)
+                        if result:
+                            closed.append({
+                                'ticket': ticket,
+                                'symbol': symbol,
+                                'reason': f'Regime changed: {entry_regime} -> {current}'
+                            })
+                            self.clear_position_regime(ticket)
+        except Exception as e:
+            logger.error(f"Regime-change check error: {e}")
+        return closed
 
 
 def volume_min_for_symbol(symbol: str) -> float:

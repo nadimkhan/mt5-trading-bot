@@ -300,14 +300,25 @@ class MT5Connector:
             logger.error(f"Failed to get symbols list: {e}")
             return []
             
-    def send_order(self, symbol, order_type, volume, sl=None, tp=None, comment=""):
-        """Send a market order"""
+    def send_order(self, symbol, order_type, volume, sl=None, tp=None, comment="", hidden_sl_tp=False):
+        """Send a market order.
+
+        If hidden_sl_tp=True, sends sl=0 and tp=0 to MT5 (no SL/TP visible in terminal).
+        The SL/TP values are returned to the caller for in-memory management.
+        Use this when you want to manage exits yourself (e.g., regime-change exits).
+        """
         try:
-            # Get symbol info for price
+            # Get symbol info (needed for both modes)
             symbol_info = mt5.symbol_info(symbol)
             if symbol_info is None:
                 logger.error(f"Unknown symbol: {symbol}")
                 return None
+
+            # If hidden_sl_tp, skip SL/TP validation and send zeros
+            if hidden_sl_tp:
+                logger.info(f"{symbol}: Sending order with HIDDEN SL/TP (managed externally)")
+                sl = 0.0
+                tp = 0.0
 
             # Get current prices
             tick = mt5.symbol_info_tick(symbol)

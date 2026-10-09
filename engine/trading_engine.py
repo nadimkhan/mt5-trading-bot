@@ -482,10 +482,10 @@ class TradingEngine:
             logger.error(f"Broadcast error: {e}")
 
     def _trade_management_loop(self):
-        """Manage open positions - breakeven, trailing stops, partial TP"""
+        """Manage open positions - breakeven, trailing stops, partial TP, regime exits"""
         if not self.trade_manager or not self.trade_manager.mt5:
             return
-        
+
         try:
             # Check daily loss limit
             if self.trade_manager.check_daily_loss_limit():
@@ -494,10 +494,27 @@ class TradingEngine:
                 self.status = "KILL_SWITCH"
                 logger.info(f"Kill switch activated: {result}")
                 return
-            
-            # Manage all positions
+
+            # REGIME-CHANGE EXIT: Check if any open positions have regime flipped
+            # Closes positions immediately when regime changes (BULL<->BEAR, or to SIDEWAYS)
+            current_regimes = {}
+            if hasattr(self, 'trend_direction') and self.trend_direction:
+                for sym, dir_val in self.trend_direction.items():
+                    # Map direction to regime-like
+                    if 'BULL' in dir_val:
+                        current_regimes[sym] = 'BULL'
+                    elif 'BEAR' in dir_val:
+                        current_regimes[sym] = 'BEAR'
+                    else:
+                        current_regimes[sym] = 'SIDEWAYS'
+            closed_by_regime = self.trade_manager.check_and_close_on_regime_change(current_regimes)
+            if closed_by_regime:
+                for c in closed_by_regime:
+                    logger.info(f"Closed {c['symbol']} ticket {c['ticket']}: {c['reason']}")
+
+            # Manage all positions (breakeven, trailing, partial TP)
             results = self.trade_manager.manage_all_positions()
-            
+
             if results['managed'] > 0:
                 logger.info(f"Trade management: {results['managed']} positions managed")
                 for action in results['actions']:
@@ -1238,7 +1255,7 @@ class TradingEngine:
             self.stats["trades_today"] += 1
             self.stats["total_trades"] += 1
             logger.info(f"ORDER SENT: {action} {lot_size} {symbol} @ {current_price} | Spread: {spread_at_entry} | Regime: {market_regime}")
-            
+
             # Insert trade to DB with enhanced logging
             trade_id = db_insert_trade(
                 symbol, action, lot_size, current_price,
@@ -1246,6 +1263,11 @@ class TradingEngine:
                 regime=market_regime,
                 slippage=round(slippage_pips, 1)
             )
+
+            # Record the regime at entry for regime-change exit detection
+            ticket = result.get("ticket")
+            if ticket and self.trade_manager:
+                self.trade_manager.record_position_regime(ticket, market_regime)
             
             # Log trade
             trade_log = {
@@ -1257,6 +1279,8 @@ class TradingEngine:
                 "entry_price": current_price,
                 "sl": sl_price,
                 "tp": tp_price,
+                # Record regime at entry for regime-change exit
+                "regime_at_entry": market_regime,
                 "entry_time": datetime.now(),
                 "strategy": decision.get("strategy", "AI"),
                 "ai_confidence": decision.get("confidence", 0),
