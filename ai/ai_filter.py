@@ -210,7 +210,7 @@ JSON response:"""
         )
 
         response = client.chat.completions.create(
-            model=self.model or "kira-3.5-flash",  # Free model
+            model=self.model or "qwen3.8-flash-free",  # Free model
             messages=[{"role": "user", "content": context}],
             max_tokens=self.max_tokens,
             temperature=self.temperature
