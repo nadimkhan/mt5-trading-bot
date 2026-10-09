@@ -84,6 +84,10 @@ class RegimeAwareStrategy:
     def __init__(self, config: dict = None):
         self.config = config or {}
         self.current_regime = "UNKNOWN"
+        # Trade limits - read from config or use defaults
+        self.max_trades_per_day = self.config.get("max_trades_per_day", 10)
+        self.daily_loss_limit_pct = self.config.get("daily_loss_limit_pct", 3.0)
+        self.min_confidence = self.config.get("min_confidence", 50)
         logger.info("RegimeAwareStrategy initialized")
 
     def _detect_regime(self, closes: List[float], highs: List[float], lows: List[float]) -> Dict:

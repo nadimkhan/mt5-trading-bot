@@ -4,7 +4,7 @@
     "description": "Multi-timeframe trend + pullback + confirmation",
     "enabled": true,
     "ai_required": {
-      "value": true,
+      "value": false,
       "type": "bool",
       "label": "Require AI Confirmation",
       "description": "If true, AI must confirm each trade. If false, trades execute without AI."
@@ -282,7 +282,7 @@
     "description": "EMA crossover trend following",
     "enabled": true,
     "ai_required": {
-      "value": true,
+      "value": false,
       "type": "bool",
       "label": "Require AI Confirmation",
       "description": "If true, AI must confirm each trade. If false, trades execute without AI."
