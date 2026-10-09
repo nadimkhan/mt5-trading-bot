@@ -31,6 +31,17 @@ def get_trades_today() -> int:
     return count
 
 
+def get_trades_today_for_symbol(symbol: str) -> int:
+    """Count trades opened today for a specific symbol (per-symbol daily limit)."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    today = date.today().isoformat()
+    cursor.execute("SELECT COUNT(*) FROM trades WHERE DATE(opened_at) = ? AND symbol = ?", (today, symbol))
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
+
+
 def get_recent_results(count: int = 10) -> list:
     """Get last N closed trade results (True for win, False for loss)"""
     conn = get_db_connection()
@@ -90,14 +101,19 @@ def get_daily_pnl() -> float:
     return pnl
 
 
-def can_trade_today(max_trades: int, max_daily_loss_pct: float, account_balance: float) -> Tuple[bool, str]:
+def can_trade_today(max_trades: int, max_daily_loss_pct: float, account_balance: float, symbol: str = None) -> Tuple[bool, str]:
     """
     Check if we can take another trade today.
-    Returns (can_trade, reason)
+    Returns (can_trade, reason).
+    If symbol is provided, count is per-symbol (more accurate for multi-asset bots).
     """
-    trades_today = get_trades_today()
+    if symbol:
+        trades_today = get_trades_today_for_symbol(symbol)
+    else:
+        trades_today = get_trades_today()
     if trades_today >= max_trades:
-        return False, f"Max trades per day reached ({trades_today}/{max_trades})"
+        scope = symbol if symbol else "all"
+        return False, f"Max trades per day reached ({trades_today}/{max_trades}) for {scope}"
     daily_pnl = get_daily_pnl()
     if account_balance > 0:
         loss_pct = abs(daily_pnl) / account_balance * 100

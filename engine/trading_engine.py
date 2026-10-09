@@ -98,21 +98,26 @@ def db_close_orphaned_trades(mt5_positions):
         to_date = datetime.now()
         from_date = to_date - timedelta(days=7)
         deals = mt5.history_deals_get(from_date, to_date) or []
-        # Build map: symbol -> latest OUT deal (entry=1 means closing trade)
+        # Build map: symbol -> list of OUT deals (entry=1 means closing trade), sorted newest first
         close_deals_by_symbol = {}
         for d in deals:
             if d.entry == 1 and d.symbol:  # OUT (closing deal)
-                # Keep the most recent close per symbol
                 if d.symbol not in close_deals_by_symbol:
-                    close_deals_by_symbol[d.symbol] = d
-                elif d.time > close_deals_by_symbol[d.symbol].time:
-                    close_deals_by_symbol[d.symbol] = d
+                    close_deals_by_symbol[d.symbol] = []
+                close_deals_by_symbol[d.symbol].append(d)
+        # Sort each by time desc (newest first)
+        for sym in close_deals_by_symbol:
+            close_deals_by_symbol[sym].sort(key=lambda x: x.time, reverse=True)
 
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT id, symbol, lot_size, entry_price, opened_at FROM trades WHERE status='OPEN'")
         open_trades = cursor.fetchall()
         conn.close()
+
+        # Track which close deal has been used for which DB trade
+        # to avoid assigning the same deal P&L to multiple DB trades
+        used_deals_by_symbol = {}
 
         for trade_id, symbol, lot_size, entry_price, opened_at in open_trades:
             # Check if still open in MT5
@@ -124,10 +129,12 @@ def db_close_orphaned_trades(mt5_positions):
                 # Look up the matching close deal for this symbol
                 close_pnl = 0
                 close_price = entry_price
-                if symbol in close_deals_by_symbol:
-                    close = close_deals_by_symbol[symbol]
+                used = used_deals_by_symbol.setdefault(symbol, 0)
+                if symbol in close_deals_by_symbol and used < len(close_deals_by_symbol[symbol]):
+                    close = close_deals_by_symbol[symbol][used]
                     close_pnl = close.profit
                     close_price = close.price
+                    used_deals_by_symbol[symbol] = used + 1
                 db_update_trade(trade_id, close_price, close_pnl)
                 logger.info(f"Closed orphan trade #{trade_id} {symbol} entry={entry_price} exit={close_price} P&L={close_pnl}")
     except Exception as e:
@@ -1141,7 +1148,7 @@ class TradingEngine:
             max_trades = getattr(strategy_obj, 'max_trades_per_day', 10) if strategy_obj else 10
             max_daily_loss = getattr(strategy_obj, 'daily_loss_limit_pct', 3.0) if strategy_obj else 3.0
             account_balance = self.mt5.get_account_info().get('balance', 0) if self.mt5 else 0
-            can_trade, reason = can_trade_today(max_trades, max_daily_loss, account_balance)
+            can_trade, reason = can_trade_today(max_trades, max_daily_loss, account_balance, symbol=symbol)
             if not can_trade:
                 logger.info(f"{symbol}: {reason}")
                 return
