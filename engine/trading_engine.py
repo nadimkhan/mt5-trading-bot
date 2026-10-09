@@ -932,6 +932,11 @@ class TradingEngine:
                 except Exception:
                     pass
 
+                # Initialize AI variables (used in decision dict below)
+                ai_action = setup.get("signal", "HOLD")  # Default: no AI veto
+                ai_confidence = 0
+                ai_reasoning = ""
+
                 if ai_required and not self.ai_filter:
                     # AI is required but not configured - skip trade
                     logger.info(f"{symbol}: SKIPPED - AI confirmation required but AI not configured")
