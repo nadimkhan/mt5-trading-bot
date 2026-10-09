@@ -219,6 +219,59 @@ def api_positions():
     return jsonify([])
 
 
+@app.route('/api/positions/close', methods=['POST'])
+def api_close_position():
+    """Manually close an open position by ticket number."""
+    global engine
+    if not engine or not engine.mt5:
+        return jsonify({"error": "Engine not running"}), 400
+    try:
+        data = request.get_json() or {}
+        ticket = data.get('ticket')
+        if not ticket:
+            return jsonify({"error": "Missing ticket"}), 400
+        ticket = int(ticket)
+        # Get current position info for P&L calculation
+        positions = engine.mt5.get_positions() or []
+        position = next((p for p in positions if p.get('ticket') == ticket), None)
+        if not position:
+            return jsonify({"error": f"Position {ticket} not found"}), 404
+        pnl_before = position.get('profit', 0)
+        symbol = position.get('symbol')
+        # Close the position
+        result = engine.mt5.close_position(ticket)
+        if not result:
+            return jsonify({"error": "MT5 failed to close position"}), 500
+        # Update DB: mark trade as closed with P&L
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE trades
+                SET status = 'CLOSED', exit_price = ?, pnl = ?, closed_at = ?
+                WHERE symbol = ? AND status = 'OPEN' AND action = ?
+                ORDER BY opened_at DESC LIMIT 1
+            """, (position.get('price_current', 0), pnl_before, datetime.now().isoformat(), symbol, 'BUY' if position.get('type') == 0 else 'SELL'))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"Failed to update trade DB after close: {e}")
+        # Clean up regime/SL tracking in trade_manager
+        if engine.trade_manager:
+            engine.trade_manager.clear_position_regime(ticket)
+            engine.trade_manager.clear_internal_sl_tp(ticket)
+        logger.info(f"Position closed via UI: {symbol} ticket {ticket} P&L=${pnl_before:.2f}")
+        return jsonify({
+            "status": "closed",
+            "ticket": ticket,
+            "symbol": symbol,
+            "pnl": pnl_before
+        })
+    except Exception as e:
+        logger.error(f"Close position error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/api/analytics')
 def api_analytics():
     """Get comprehensive trade analytics"""

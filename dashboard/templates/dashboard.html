@@ -178,6 +178,8 @@
         .pnl-value { font-family: 'JetBrains Mono', monospace; font-weight: 600; }
         .pnl-value.positive { color: var(--accent-green); }
         .pnl-value.negative { color: var(--accent-red); }
+        .btn-close-pos { background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); padding: 4px 12px; border-radius: 4px; font-family: inherit; font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+        .btn-close-pos:hover { background: #ef4444; color: #fff; }
 
         .market-item { display: flex; align-items: center; justify-content: space-between; padding: 12px; border-bottom: 1px solid var(--border-color); transition: background 0.2s; }
         .market-item:last-child { border-bottom: none; }
@@ -696,10 +698,49 @@
                 showEmpty('positions-data', '○', 'No open positions', 'Start the engine to look for trading opportunities');
                 return;
             }
-            let html = '<table class="positions-table"><thead><tr><th>Symbol</th><th>Type</th><th>Lot</th><th>Entry</th><th>P&L</th></tr></thead><tbody>';
-            positions.forEach(p => { const pnl = p.profit || 0; const pnlClass = pnl >= 0 ? 'positive' : 'negative'; const sign = pnl >= 0 ? '+' : '-'; const absPnl = Math.abs(pnl).toFixed(2); html += '<tr><td><span class="symbol-badge">' + p.symbol + '</span></td><td><span class="type-badge ' + p.type.toLowerCase() + '">' + p.type + '</span></td><td>' + p.volume + '</td><td>' + p.price_open.toFixed(5) + '</td><td><span class="pnl-value ' + pnlClass + '">' + sign + '$' + absPnl + '</span></td></tr>'; });
+            let html = '<table class="positions-table"><thead><tr><th>Symbol</th><th>Type</th><th>Lot</th><th>Entry</th><th>P&L</th><th>Action</th></tr></thead><tbody>';
+            positions.forEach(p => {
+                const pnl = p.profit || 0;
+                const pnlClass = pnl >= 0 ? 'positive' : 'negative';
+                const sign = pnl >= 0 ? '+' : '-';
+                const absPnl = Math.abs(pnl).toFixed(2);
+                const ticket = p.ticket;
+                html += '<tr>'
+                    + '<td><span class="symbol-badge">' + p.symbol + '</span></td>'
+                    + '<td><span class="type-badge ' + p.type.toLowerCase() + '">' + p.type + '</span></td>'
+                    + '<td>' + p.volume + '</td>'
+                    + '<td>' + p.price_open.toFixed(5) + '</td>'
+                    + '<td><span class="pnl-value ' + pnlClass + '">' + sign + '$' + absPnl + '</span></td>'
+                    + '<td><button class="btn-close-pos" onclick="closePosition(' + ticket + ', \'' + p.symbol + '\')">Close</button></td>'
+                    + '</tr>';
+            });
             html += '</tbody></table>';
             container.innerHTML = html;
+        }
+
+        function closePosition(ticket, symbol) {
+            if (!confirm('Close position ' + symbol + ' (ticket ' + ticket + ')?')) {
+                return;
+            }
+            fetch('/api/positions/close', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ticket: ticket })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) {
+                    showModal('Close failed: ' + data.error);
+                } else {
+                    showModal('Position ' + symbol + ' closed. P&L: $' + (data.pnl || 0).toFixed(2));
+                    // Refresh positions and history
+                    safeFetch('/api/positions', updatePositions);
+                    safeFetch('/api/history', updateHistory);
+                }
+            })
+            .catch(err => {
+                showModal('Close failed: ' + err);
+            });
         }
 
         function updateDecisions(decisions) {
