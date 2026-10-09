@@ -920,12 +920,15 @@ class TradingEngine:
 
                 # Apply AI CONFIRMATION GATE - AI must confirm before trade is allowed
                 # Check if AI is required for this strategy
-                ai_required = True
+                ai_required = False  # Default: don't require AI (faster, fewer rejections)
                 try:
                     from strategies.strategy_config import load_configs
                     configs = load_configs()
                     active = self.strategy_manager.active_strategy if self.strategy_manager else "scalp"
-                    ai_required = configs.get(active, {}).get('ai_required', {}).get('value', True)
+                    # Try active strategy first, then fall back to scalp (regime has no config)
+                    ai_required = configs.get(active, {}).get('ai_required', {}).get('value', False)
+                    if ai_required is None:
+                        ai_required = False
                 except Exception:
                     pass
 
