@@ -29,14 +29,13 @@ REGIME_PARAMS = {
         "ema_fast": 21,
         "ema_slow": 50,
         "rsi_period": 14,
-        "rsi_buy_min": 40,
-        "rsi_buy_max": 60,
-        "use_macd": True,
-        "adx_min": 25,
+        "rsi_buy_min": 35,
+        "rsi_buy_max": 65,
+        "use_macd": False,
+        "adx_min": 20,
         "atr_sl_mult": 2.0,
         "atr_tp_mult": 4.0,
-        "volume_filter": True,
-        "volume_mult": 1.0,
+        "volume_filter": False,
         "expected_win_rate": 50,
         "expected_rr": 2.0,
     },
@@ -46,14 +45,13 @@ REGIME_PARAMS = {
         "ema_fast": 21,
         "ema_slow": 50,
         "rsi_period": 14,
-        "rsi_sell_min": 40,
-        "rsi_sell_max": 60,
-        "use_macd": True,
-        "adx_min": 25,
+        "rsi_sell_min": 35,
+        "rsi_sell_max": 65,
+        "use_macd": False,
+        "adx_min": 20,
         "atr_sl_mult": 2.0,
         "atr_tp_mult": 4.0,
-        "volume_filter": True,
-        "volume_mult": 1.0,
+        "volume_filter": False,
         "expected_win_rate": 50,
         "expected_rr": 2.0,
     },
@@ -162,7 +160,7 @@ class RegimeAwareStrategy:
                     "reason": f"Price {current_price:.5f} below slow EMA {ema_slow:.5f}"}
 
         distance = abs(current_price - ema_fast) / atr
-        if distance > 1.5:
+        if distance > 2.5:
             return {"signal": "HOLD", "confidence": 0,
                     "reason": f"Too far from EMA ({distance:.1f} ATRs)"}
 
@@ -210,7 +208,7 @@ class RegimeAwareStrategy:
                     "reason": f"Price {current_price:.5f} above slow EMA {ema_slow:.5f}"}
 
         distance = abs(current_price - ema_fast) / atr
-        if distance > 1.5:
+        if distance > 2.5:
             return {"signal": "HOLD", "confidence": 0,
                     "reason": f"Too far from EMA ({distance:.1f} ATRs)"}
 
