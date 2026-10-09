@@ -90,10 +90,11 @@ class RegimeAwareStrategy:
         self.min_confidence = self.config.get("min_confidence", 50)
         # Streak-based lot adjustment attributes (required by trade_manager)
         self.loss_streak_reduction_pct = self.config.get("loss_streak_reduction_pct", 50)
-        self.win_streak_boost_pct = self.config.get("win_streak_boost_pct", 20)
-        self.max_streak_lot_multiplier = self.config.get("max_streak_lot_multiplier", 2.0)
         self.loss_streak_threshold = self.config.get("loss_streak_threshold", 2)
+        self.win_streak_boost_pct = self.config.get("win_streak_boost_pct", 20)
+        self.win_streak_increase_pct = self.config.get("win_streak_increase_pct", 20)
         self.win_streak_threshold = self.config.get("win_streak_threshold", 2)
+        self.max_streak_lot_multiplier = self.config.get("max_streak_lot_multiplier", 2.0)
         self.base_lot_size = self.config.get("base_lot_size", 0.01)
         logger.info("RegimeAwareStrategy initialized")
 

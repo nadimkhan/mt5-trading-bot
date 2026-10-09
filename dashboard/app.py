@@ -58,6 +58,9 @@ def init_database():
             entry_price REAL NOT NULL,
             exit_price REAL,
             pnl REAL,
+            spread REAL DEFAULT 0,
+            regime TEXT DEFAULT 'UNKNOWN',
+            slippage REAL DEFAULT 0,
             status TEXT DEFAULT 'OPEN',
             opened_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             closed_at TIMESTAMP
