@@ -88,6 +88,10 @@ class RegimeAwareStrategy:
         self.max_trades_per_day = self.config.get("max_trades_per_day", 10)
         self.daily_loss_limit_pct = self.config.get("daily_loss_limit_pct", 3.0)
         self.min_confidence = self.config.get("min_confidence", 50)
+        # Streak-based lot adjustment attributes (required by trade_manager)
+        self.loss_streak_reduction_pct = self.config.get("loss_streak_reduction_pct", 50)
+        self.win_streak_boost_pct = self.config.get("win_streak_boost_pct", 20)
+        self.max_streak_lot_multiplier = self.config.get("max_streak_lot_multiplier", 2.0)
         logger.info("RegimeAwareStrategy initialized")
 
     def _detect_regime(self, closes: List[float], highs: List[float], lows: List[float]) -> Dict:

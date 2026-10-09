@@ -1158,30 +1158,56 @@ class TradingEngine:
         # Execute trade
         sl_pips = decision.get("stop_loss_pips", self.config.get("trading", {}).get("default_stop_loss_pips", 30))
         tp_pips = decision.get("take_profit_pips", self.config.get("trading", {}).get("default_take_profit_pips", 50))
-        
+
         # Use entry timeframe price
         entry_data = self.market_data.get(symbol, {}).get(self.timeframes["entry"], {})
-        current_price = entry_data.get("bid")
+        current_price = entry_data.get("bid") or entry_data.get("close")
+        if not current_price:
+            # Fall back to MT5 current price
+            price_info = self.mt5.get_current_price(symbol) if self.mt5 else None
+            if price_info:
+                current_price = price_info.get("bid", 0)
         if not current_price:
             logger.error(f"Cannot get price for {symbol}")
             return
-            
+
         # Get symbol info for pip calculation
         symbol_info = self.mt5.get_symbol_info(symbol)
         digits = symbol_info.get("digits", 5) if symbol_info else 5
         pip_multiplier = 10 ** (digits - 4) if digits == 5 else 10 ** (digits - 2)
-        
+
         sl_price = None
         tp_price = None
-        
-        if action == "BUY":
-            sl_price = current_price - (sl_pips / pip_multiplier)
-            tp_price = current_price + (tp_pips / pip_multiplier)
-        else:  # SELL
-            sl_price = current_price + (sl_pips / pip_multiplier)
-            tp_price = current_price - (tp_pips / pip_multiplier)
-            
-        # Send order
+
+        # Prefer SL/TP prices from the strategy if provided
+        strategy_sl = decision.get("sl") or decision.get("stop_loss")
+        strategy_tp = decision.get("tp") or decision.get("take_profit")
+        if strategy_sl and strategy_tp:
+            sl_price = float(strategy_sl)
+            tp_price = float(strategy_tp)
+            logger.info(f"{symbol}: Using strategy SL/TP prices: SL={sl_price}, TP={tp_price}")
+        else:
+            # Fall back to calculating from pips
+            if action == "BUY":
+                sl_price = current_price - (sl_pips / pip_multiplier)
+                tp_price = current_price + (tp_pips / pip_multiplier)
+            else:  # SELL
+                sl_price = current_price + (sl_pips / pip_multiplier)
+                tp_price = current_price - (tp_pips / pip_multiplier)
+            logger.info(f"{symbol}: Calculated SL/TP from pips: SL={sl_price}, TP={tp_price}")
+
+        # Ensure SL/TP respect MT5 minimum stop level
+        if symbol_info:
+            point = symbol_info.get("point", 0.00001)
+            min_stop_level = symbol_info.get("trade_stops_level", 0) * point * 2
+            if action == "BUY":
+                if sl_price > current_price - min_stop_level:
+                    sl_price = round(current_price - min_stop_level - min_stop_level * 0.1, digits)
+                    logger.info(f"{symbol}: SL adjusted to min stop level: {sl_price}")
+            else:
+                if sl_price < current_price + min_stop_level:
+                    sl_price = round(current_price + min_stop_level + min_stop_level * 0.1, digits)
+                    logger.info(f"{symbol}: SL adjusted to min stop level: {sl_price}")
         result = self.mt5.send_order(
             symbol=symbol,
             order_type=action,
