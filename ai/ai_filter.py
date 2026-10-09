@@ -143,6 +143,8 @@ JSON response:"""
             return self._query_claude(context)
         elif self.provider == "openai":
             return self._query_openai(context)
+        elif self.provider == "kiraai":
+            return self._query_kiraai(context)
         else:
             return '{"approved": true, "reason": "Unknown provider", "adjustments": {}}'
     
@@ -188,16 +190,34 @@ JSON response:"""
         """Query OpenAI API"""
         import openai
         client = openai.OpenAI(api_key=self.api_key)
-        
+
         response = client.chat.completions.create(
             model=self.model or "gpt-4o-mini",
             messages=[{"role": "user", "content": context}],
             max_tokens=self.max_tokens,
             temperature=self.temperature
         )
-        
+
         return response.choices[0].message.content
-    
+
+    def _query_kiraai(self, context: str) -> str:
+        """Query KiraAI.vn (OpenAI-compatible API at kiraai.vn/api/v1).
+        Free tier available with 150M tokens. Same protocol as OpenAI."""
+        import openai
+        client = openai.OpenAI(
+            api_key=self.api_key,
+            base_url="https://kiraai.vn/api/v1"
+        )
+
+        response = client.chat.completions.create(
+            model=self.model or "kira-3.5-flash",  # Free model
+            messages=[{"role": "user", "content": context}],
+            max_tokens=self.max_tokens,
+            temperature=self.temperature
+        )
+
+        return response.choices[0].message.content
+
     def _parse_response(self, response: str, setup: Dict) -> Dict:
         """Parse AI JSON response - expects action/confidence/reason"""
         try:
