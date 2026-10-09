@@ -884,34 +884,11 @@ class TradingEngine:
                     self.log_rejection(symbol, 'low_confidence', f'{setup_confidence}% < {min_conf}%')
                     continue
 
-                # Check momentum (is price moving strongly enough?)
-                m5_data = market_data.get('M5', {})
-                m5_closes = m5_data.get('closes', [])
-                if len(m5_closes) >= 11:
-                    mom_ok, momentum, mom_dir = is_momentum_strong(m5_closes, period=10, min_momentum_pct=0.05)
-                    if not mom_ok:
-                        logger.info(f"{symbol}: REJECTED - momentum too weak ({momentum:.3f}%)")
-                        self.log_rejection(symbol, 'weak_momentum', f'{momentum:.3f}%')
-                        continue
-                    # Momentum should align with signal
-                    signal = setup.get("signal")
-                    if signal == "BUY" and mom_dir != "BULL":
-                        logger.info(f"{symbol}: REJECTED - momentum bearish ({momentum:.3f}%) but signal BUY")
-                        self.log_rejection(symbol, 'momentum_mismatch', f'BUY signal but momentum={momentum:.3f}%')
-                        continue
-                    if signal == "SELL" and mom_dir != "BEAR":
-                        logger.info(f"{symbol}: REJECTED - momentum bullish ({momentum:.3f}%) but signal SELL")
-                        self.log_rejection(symbol, 'momentum_mismatch', f'SELL signal but momentum={momentum:.3f}%')
-                        continue
+                # Momentum check removed - pullback entries naturally have low momentum
+                # The strategy's RSI + EMA + ADX filters are sufficient
 
-                # Check volume (is current volume above average?)
-                m5_volumes = m5_data.get('volumes', [])
-                if len(m5_volumes) >= 21:
-                    vol_ok, curr_vol, avg_vol, vol_ratio = is_volume_confirmed(m5_volumes, period=20, multiplier=1.0)
-                    if not vol_ok:
-                        logger.info(f"{symbol}: REJECTED - volume below average (ratio {vol_ratio:.2f})")
-                        self.log_rejection(symbol, 'low_volume', f'ratio={vol_ratio:.2f}')
-                        continue
+                # Volume check removed - false rejections on slow markets
+                # The strategy's other filters (RSI, EMA, ADX) are sufficient
 
                 # Check news filter (no high-impact news in next 30 min)
                 if self.news_checker:
