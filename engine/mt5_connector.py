@@ -322,8 +322,17 @@ class MT5Connector:
 
             # Get current prices
             tick = mt5.symbol_info_tick(symbol)
-            if tick is None:
-                logger.error(f"Cannot get price for {symbol}")
+            if tick is None or (tick.bid == 0 and tick.ask == 0):
+                logger.error(f"Cannot get price for {symbol} (no bid/ask) - skipping")
+                return None
+
+            # Check if symbol is tradable (trade_mode=4 means full trading allowed)
+            sym_info = mt5.symbol_info(symbol)
+            if sym_info is None:
+                logger.error(f"Symbol {symbol} not found")
+                return None
+            if sym_info.trade_mode != 4:
+                logger.warning(f"{symbol} trade_mode={sym_info.trade_mode} (not fully tradable) - skipping")
                 return None
 
             # Prepare request
@@ -460,23 +469,38 @@ class MT5Connector:
             return False
 
     def close_position(self, ticket, volume=None):
-        """Close a position"""
+        """Close a position with broker-specific filling mode detection."""
         try:
             # Get position info
             positions = mt5.positions_get(ticket=ticket)
             if positions is None or len(positions) == 0:
                 logger.error(f"Position {ticket} not found")
                 return False
-                
+
             pos = positions[0]
             symbol = pos.symbol
             order_type = mt5.ORDER_TYPE_SELL if pos.type == 0 else mt5.ORDER_TYPE_BUY
             volume_to_close = volume if volume else pos.volume
-            
+
             # Get current price
             tick = mt5.symbol_info_tick(symbol)
             price = tick.bid if order_type == mt5.ORDER_TYPE_SELL else tick.ask
-            
+
+            # Probe symbol for supported filling modes (bitmask)
+            # SYMBOL_FILLING_FOK=1, SYMBOL_FILLING_IOC=2
+            symbol_info = mt5.symbol_info(symbol)
+            filling_mode = 0
+            if symbol_info and hasattr(symbol_info, 'filling_mode'):
+                filling_mode = symbol_info.filling_mode
+                logger.debug(f"{symbol} filling_mode bitmask: {filling_mode}")
+            # Choose filling: prefer IOC if supported, then FOK, else leave 0
+            type_filling = None
+            if filling_mode & 2:  # IOC supported
+                type_filling = mt5.ORDER_FILLING_IOC
+            elif filling_mode & 1:  # FOK supported
+                type_filling = mt5.ORDER_FILLING_FOK
+            # If bitmask is 0 or unknown, leave type_filling out (broker default)
+
             request = {
                 "action": mt5.TRADE_ACTION_DEAL,
                 "symbol": symbol,
@@ -488,7 +512,9 @@ class MT5Connector:
                 "magic": 123456,
                 "comment": "Closed by trading bot"
             }
-            
+            if type_filling is not None:
+                request["type_filling"] = type_filling
+
             result = mt5.order_send(request)
             
             if result.retcode != mt5.TRADE_RETCODE_DONE:
