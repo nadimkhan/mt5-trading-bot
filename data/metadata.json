@@ -1,0 +1,38 @@
+{
+  "timeframe": "M5",
+  "downloaded_at": "2026-10-12T18:04:28.354216",
+  "symbols": {
+    "EURUSD": {
+      "bars": 50000,
+      "first_date": "2026-02-11T06:20:00",
+      "last_date": "2026-10-12T21:00:00",
+      "first_close": 1.1892,
+      "last_close": 1.11769,
+      "pct_change": -6.01
+    },
+    "GBPUSD": {
+      "bars": 50000,
+      "first_date": "2026-02-11T06:05:00",
+      "last_date": "2026-10-12T21:00:00",
+      "first_close": 1.36401,
+      "last_close": 1.32311,
+      "pct_change": -3.0
+    },
+    "XAUUSD": {
+      "bars": 50000,
+      "first_date": "2026-01-28T22:20:00",
+      "last_date": "2026-10-12T21:00:00",
+      "first_close": 5272.06,
+      "last_close": 4160.91,
+      "pct_change": -21.08
+    },
+    "BRNUSD": {
+      "bars": 50000,
+      "first_date": "2026-01-09T11:15:00",
+      "last_date": "2026-10-12T21:00:00",
+      "first_close": 62.59,
+      "last_close": 104.56,
+      "pct_change": 67.06
+    }
+  }
+}
