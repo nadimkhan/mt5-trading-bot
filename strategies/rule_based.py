@@ -365,6 +365,13 @@ class StrategyManager:
             self.strategies["regime"] = RegimeAwareStrategy(config)
         except Exception as e:
             logger.warning(f"Regime strategy not available: {e}")
+        # Load regime_v2: data-driven mean reversion in SIDEWAYS only
+        try:
+            from strategies.regime_v2 import RegimeV2Strategy
+            self.strategies["regime_v2"] = RegimeV2Strategy(config)
+            logger.info("Loaded regime_v2 strategy (data-driven)")
+        except Exception as e:
+            logger.warning(f"regime_v2 strategy not available: {e}")
         # Try to load ML strategy (genetic algorithm discovered parameters)
         try:
             from strategies.ml_strategy import MLStrategy
@@ -403,6 +410,12 @@ class StrategyManager:
                 self.strategies["regime"] = RegimeAwareStrategy(configs.get('regime', {}))
             except Exception as e:
                 logger.warning(f"Failed to reload regime strategy: {e}")
+        elif active == "regime_v2":
+            try:
+                from strategies.regime_v2 import RegimeV2Strategy
+                self.strategies["regime_v2"] = RegimeV2Strategy(configs.get('regime', {}))
+            except Exception as e:
+                logger.warning(f"Failed to reload regime_v2 strategy: {e}")
         elif active == "ml":
             try:
                 from strategies.ml_strategy import MLStrategy

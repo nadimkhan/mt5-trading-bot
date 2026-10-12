@@ -317,6 +317,7 @@
                     <button class="strategy-btn active" id="btn-scalp" data-strategy="scalp"><span class="strategy-name">Scalp</span><span class="strategy-desc">H4+M15+M1</span></button>
                     <button class="strategy-btn" id="btn-trend" data-strategy="trend"><span class="strategy-name">Trend</span><span class="strategy-desc">EMA Cross</span></button>
                     <button class="strategy-btn" id="btn-regime" data-strategy="regime"><span class="strategy-name">Regime</span><span class="strategy-desc">BULL/BEAR/SIDE</span></button>
+                    <button class="strategy-btn" id="btn-regime-v2" data-strategy="regime_v2"><span class="strategy-name">Regime v2</span><span class="strategy-desc">SIDEWAYS only</span></button>
                     <button class="strategy-btn" id="btn-ml" data-strategy="ml"><span class="strategy-name">ML</span><span class="strategy-desc">Genetic</span></button>
                 </div>
                 <button class="sidebar-btn" id="btn-config">Configure Strategies</button>
@@ -448,6 +449,7 @@
         document.getElementById('btn-scalp').addEventListener('click', function() { setStrategy('scalp'); });
         document.getElementById('btn-trend').addEventListener('click', function() { setStrategy('trend'); });
         document.getElementById('btn-regime').addEventListener('click', function() { setStrategy('regime'); });
+        document.getElementById('btn-regime-v2').addEventListener('click', function() { setStrategy('regime_v2'); });
         document.getElementById('btn-ml').addEventListener('click', function() { setStrategy('ml'); });
         document.getElementById('btn-ml-search').addEventListener('click', runMLSearch);
         document.getElementById('modal-ok').addEventListener('click', closeModal);
@@ -634,6 +636,7 @@
             document.getElementById('btn-scalp').classList.toggle('active', strategy === 'scalp');
             document.getElementById('btn-trend').classList.toggle('active', strategy === 'trend');
             document.getElementById('btn-regime').classList.toggle('active', strategy === 'regime');
+            document.getElementById('btn-regime-v2').classList.toggle('active', strategy === 'regime_v2');
             document.getElementById('btn-ml').classList.toggle('active', strategy === 'ml');
 
             // Enable/disable context buttons based on strategy
