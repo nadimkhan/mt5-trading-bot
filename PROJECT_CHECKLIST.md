@@ -92,9 +92,13 @@
 - [x] `StrategyManager.reload_active_strategy()` for hot-reload after apply
 
 ### Reported Issues (NEEDS INVESTIGATION)
-- [x] **Max trades per day not updating** - FIXED: now reads from `strategy_configs.json` each loop
+- [x] **Max trades per day not updating** - FIXED: now reads from `strategy_configs.json` each loop, falls back to scalp config when active strategy has no config section
 - [x] **P&L per trade values incorrect in Recent Trades** - FIXED: DB now primary source, MT5 fallback matches by `position_id` not symbol
 - [x] **SL/TP visible in MT5 terminal** - FIXED: `hidden_sl_tp: true` in config.yaml
+- [x] **Recent trades showed multiple bad entries with -$12.60 P&L** - FIXED: orphan closer rewritten to match by position_id, dedup on insert, real historical MT5 data reconciled
+- [x] **"Closed orphan trade" appearing for self-closed positions** - FIXED: when hidden SL/TP or regime-change closes, update DB immediately so orphan closer doesn't double-process
+- [x] **Optimizer only checking 1 asset** - FIXED: now iterates all enabled symbols
+- [x] **Bot over-trading in chop market (18+ trades/day, losing)** - FIXED: 5 hard gates added (ADX>18, no Asia session, 2-loss cooldown, min 2:1 RR, max 8 trades/day)
 
 ### UI Polish (DONE in this session)
 - [x] **Loading states** - Spinner + "Loading..." text on initial load

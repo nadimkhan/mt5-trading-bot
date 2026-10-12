@@ -1446,6 +1446,74 @@ class TradingEngine:
             logger.info(f"{symbol}: {regime_check['reason']}")
             return
 
+        # ========== ANTI-OVERTRADING RULES (hard gates) ==========
+        # Rule 1: ADX must be > 18 (no signals in flat markets)
+        adx_value = 0
+        if regime_check.get('regime') and isinstance(regime_check['regime'], dict):
+            adx_value = regime_check['regime'].get('adx', 0) or 0
+        if adx_value < 18:
+            logger.info(f"{symbol}: SKIP - ADX={adx_value:.1f} too low (need >18)")
+            return
+
+        # Rule 2: Time-of-day filter - skip Asia session (low volume)
+        try:
+            from datetime import datetime, time as _time
+            now_utc = datetime.utcnow()
+            # Forex: skip 22:00-06:00 UTC (Asia dead zone)
+            # XAU/BRN: same
+            # BTC: trade 24/7 (crypto never sleeps)
+            if symbol not in ('BTCUSDT', 'ETHUSDT'):
+                if now_utc.hour >= 22 or now_utc.hour < 6:
+                    logger.info(f"{symbol}: SKIP - Asia session low volume (hour={now_utc.hour} UTC)")
+                    return
+        except Exception:
+            pass
+
+        # Rule 3: Max 2 consecutive losses - pause 1 hour after
+        if not hasattr(self, '_consecutive_losses'):
+            self._consecutive_losses = {}
+        if not hasattr(self, '_pause_until'):
+            self._pause_until = {}
+        from datetime import datetime as _dt2, timedelta as _td
+        now = _dt2.utcnow()
+        if symbol in self._pause_until and self._pause_until[symbol] > now:
+            remaining = (self._pause_until[symbol] - now).seconds // 60
+            logger.info(f"{symbol}: SKIP - cooldown after 2 losses ({remaining}m left)")
+            return
+        # Count recent losses (last 24h)
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT pnl FROM trades
+                WHERE symbol = ? AND status = 'CLOSED' AND closed_at > datetime('now', '-1 day')
+                ORDER BY closed_at DESC LIMIT 5
+            """, (symbol,))
+            recent = cursor.fetchall()
+            conn.close()
+            losses = 0
+            for r in recent:
+                if r[0] is not None and r[0] < 0:
+                    losses += 1
+                else:
+                    break  # streak broken
+            if losses >= 2:
+                self._pause_until[symbol] = now + _td(hours=1)
+                logger.info(f"{symbol}: 2 consecutive losses, pausing 1 hour")
+                return
+        except Exception as e:
+            logger.debug(f"Loss streak check failed: {e}")
+
+        # Rule 4: Min 2:1 RR ratio (require sl_pips < tp_pips/2)
+        sl_pips = decision.get("sl_pips") or decision.get("stop_loss_pips") or 10
+        tp_pips = decision.get("tp_pips") or decision.get("take_profit_pips") or 20
+        if tp_pips < sl_pips * 2:
+            logger.info(f"{symbol}: SKIP - RR {tp_pips/sl_pips:.1f}:1 < 2:1 (SL={sl_pips} TP={tp_pips})")
+            return
+
+        # Rule 5: Max trades per day already checked above (in can_trade_today)
+        # =========================================================
+
         # Check correlation filter
         lot_size = decision.get("lot_size", self.config.get("trading", {}).get("default_lot_size", 0.01))
         # Safety: ensure lot_size is valid

@@ -227,7 +227,7 @@
         "description": "Maximum concurrent positions"
       },
       "max_trades_per_day": {
-        "value": 10,
+        "value": 8,
         "type": "int",
         "min": 1,
         "max": 50,
@@ -470,7 +470,7 @@
         "label": "Max Open Trades"
       },
       "max_trades_per_day": {
-        "value": 15,
+        "value": 8,
         "type": "int",
         "min": 1,
         "max": 50,
@@ -647,7 +647,7 @@
         "label": "Max Open Trades"
       },
       "max_trades_per_day": {
-        "value": 10,
+        "value": 8,
         "type": "int",
         "min": 1,
         "max": 50,

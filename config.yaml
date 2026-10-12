@@ -66,7 +66,7 @@ trailing:
 
 # Engine Settings for Scalping
 engine:
-  scalp_loop_seconds: 15     # 15 seconds between scalp checks
+  scalp_loop_seconds: 30     # 15 seconds between scalp checks
   trend_loop_seconds: 60    # 1 minute between M15 trend updates
   ai_timeout_seconds: 30     # Max wait for AI response
   max_retries: 3            # Retry failed AI calls
